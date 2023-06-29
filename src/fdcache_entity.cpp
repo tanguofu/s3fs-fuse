@@ -485,6 +485,8 @@ int FdEntity::Open(const headers_t* pmeta, off_t size, const struct timespec& ts
         bool  need_save_csf = false;  // need to save(reset) cache stat file
         bool  is_truncate   = false;  // need to truncate
 
+        CacheFileStat* pcfstat = NULL;
+
         if(!cachepath.empty()){
             // using cache
             struct stat st;
@@ -498,12 +500,12 @@ int FdEntity::Open(const headers_t* pmeta, off_t size, const struct timespec& ts
             }
 
             // open cache and cache stat file, load page info.
-            CacheFileStat cfstat(path.c_str());
+            pcfstat = new CacheFileStat(path.c_str());
 
             // try to open cache file
             if( -1 != (physical_fd = open(cachepath.c_str(), O_RDWR)) &&
                 0 != (inode = FdEntity::GetInode(physical_fd))        &&
-                pagelist.Serialize(cfstat, false, inode)          )
+                pagelist.Serialize(*pcfstat, false, inode)            )
             {
                 // succeed to open cache file and to load stats data
                 memset(&st, 0, sizeof(struct stat));
@@ -517,13 +519,18 @@ int FdEntity::Open(const headers_t* pmeta, off_t size, const struct timespec& ts
                 if(-1 == size){
                     if(st.st_size != pagelist.Size()){
                         pagelist.Resize(st.st_size, false, true); // Areas with increased size are modified
-                        need_save_csf = true;     // need to update page info
+                        need_save_csf = true;                     // need to update page info
                     }
                     size = st.st_size;
                 }else{
+                    // First if the current cache file size and pagelist do not match, fix pagelist.
+                    if(st.st_size != pagelist.Size()){
+                        pagelist.Resize(st.st_size, false, true); // Areas with increased size are modified
+                        need_save_csf = true;                     // need to update page info
+                    }
                     if(size != pagelist.Size()){
                         pagelist.Resize(size, false, true);       // Areas with increased size are modified
-                        need_save_csf = true;     // need to update page info
+                        need_save_csf = true;                     // need to update page info
                     }
                     if(size != st.st_size){
                         is_truncate = true;
@@ -631,11 +638,13 @@ int FdEntity::Open(const headers_t* pmeta, off_t size, const struct timespec& ts
         }
 
         // reset cache stat file
-        if(need_save_csf){
-            CacheFileStat cfstat(path.c_str());
-            if(!pagelist.Serialize(cfstat, true, inode)){
+        if(need_save_csf && pcfstat){
+            if(!pagelist.Serialize(*pcfstat, true, inode)){
                 S3FS_PRN_WARN("failed to save cache stat file(%s), but continue...", path.c_str());
             }
+        }
+        if(pcfstat){
+            delete pcfstat;
         }
 
         // set original headers and size in it.
@@ -1401,13 +1410,13 @@ off_t FdEntity::BytesModified()
 //
 int FdEntity::RowFlush(int fd, const char* tpath, AutoLock::Type type, bool force_sync)
 {
+    AutoLock auto_lock(&fdent_lock, type);
+
     S3FS_PRN_INFO3("[tpath=%s][path=%s][pseudo_fd=%d][physical_fd=%d]", SAFESTRPTR(tpath), path.c_str(), fd, physical_fd);
 
     if(-1 == physical_fd){
         return -EBADF;
     }
-
-    AutoLock auto_lock(&fdent_lock, type);
 
     // check pseudo fd and its flag
     fdinfo_map_t::iterator miter = pseudo_fd_map.find(fd);
@@ -2482,10 +2491,11 @@ bool FdEntity::PunchHole(off_t start, size_t size)
 {
     S3FS_PRN_DBG("[path=%s][physical_fd=%d][offset=%lld][size=%zu]", path.c_str(), physical_fd, static_cast<long long int>(start), size);
 
+    AutoLock auto_lock(&fdent_data_lock);
+
     if(-1 == physical_fd){
         return false;
     }
-    AutoLock auto_lock(&fdent_data_lock);
 
     // get page list that have no data
     fdpage_list_t   nodata_pages;
@@ -2523,8 +2533,17 @@ bool FdEntity::PunchHole(off_t start, size_t size)
 //
 void FdEntity::MarkDirtyNewFile()
 {
+    AutoLock auto_lock(&fdent_data_lock);
+
     pagelist.Init(0, false, true);
     pending_status = CREATE_FILE_PENDING;
+}
+
+bool FdEntity::IsDirtyNewFile() const
+{
+    AutoLock auto_lock(&fdent_data_lock);
+
+    return (CREATE_FILE_PENDING == pending_status);
 }
 
 bool FdEntity::AddUntreated(off_t start, off_t size)

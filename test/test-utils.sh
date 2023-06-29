@@ -137,22 +137,6 @@ function mk_test_file {
         echo "Could not create file ${TEST_TEXT_FILE}, it does not exist"
         exit 1
     fi
-
-    # wait & check
-    local BASE_TEXT_LENGTH; BASE_TEXT_LENGTH=$(echo "${TEXT}" | wc -c | awk '{print $1}')
-    local TRY_COUNT=10
-    while true; do
-        local MK_TEXT_LENGTH
-        MK_TEXT_LENGTH=$(wc -c "${TEST_TEXT_FILE}" | awk '{print $1}')
-        if [ "${BASE_TEXT_LENGTH}" -eq "${MK_TEXT_LENGTH}" ]; then
-            break
-        fi
-        local TRY_COUNT=$((TRY_COUNT - 1))
-        if [ "${TRY_COUNT}" -le 0 ]; then
-            echo "Could not create file ${TEST_TEXT_FILE}, that file size is something wrong"
-        fi
-        sleep 1
-    done
 }
 
 function rm_test_file {
@@ -295,32 +279,29 @@ function run_suite {
 }
 
 function get_ctime() {
+    # ex: "1657504903.019784214"
     if [ "$(uname)" = "Darwin" ]; then
-        # ex: "1657504903.019784214"
         stat -f "%Fc" "$1"
     else
-        # ex: "2022-07-24 12:45:18.621046168 +0000"
-        stat -c "%z" "$1"
+        stat -c "%.9Z" "$1"
     fi
 }
 
 function get_mtime() {
+    # ex: "1657504903.019784214"
     if [ "$(uname)" = "Darwin" ]; then
-        # ex: "1657504903.019784214"
         stat -f "%Fm" "$1"
     else
-        # ex: "2022-07-24 12:45:18.621046168 +0000"
-        stat -c "%y" "$1"
+        stat -c "%.9Y" "$1"
     fi
 }
 
 function get_atime() {
+    # ex: "1657504903.019784214"
     if [ "$(uname)" = "Darwin" ]; then
-        # ex: "1657504903.019784214"
         stat -f "%Fa" "$1"
     else
-        # ex: "2022-07-24 12:45:18.621046168 +0000"
-        stat -c "%x" "$1"
+        stat -c "%0.9X" "$1"
     fi
 }
 
