@@ -582,6 +582,8 @@ static int get_object_attribute(const char* path, struct stat* pstbuf, headers_t
                 *pisforce = true;
                 result    = 0;
             }
+        }else if (is_bucket_mountpoint) {
+            *pisforce = true;
         }
     }
 
