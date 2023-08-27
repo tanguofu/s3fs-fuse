@@ -35,25 +35,10 @@
 const char SPACES[] = " \t\r\n";
 
 //-------------------------------------------------------------------
-// Templates
+// Functions
 //-------------------------------------------------------------------
-template <class T> std::string str(T value)
-{
-    std::ostringstream s;
-    s << value;
-    return s.str();
-}
 
-template std::string str(short value);
-template std::string str(unsigned short value);
-template std::string str(int value);
-template std::string str(unsigned int value);
-template std::string str(long value);
-template std::string str(unsigned long value);
-template std::string str(long long value);
-template std::string str(unsigned long long value);
-
-template<> std::string str(const struct timespec value)
+std::string str(const struct timespec value)
 {
     std::ostringstream s;
     s << value.tv_sec;
@@ -62,10 +47,6 @@ template<> std::string str(const struct timespec value)
     }
     return s.str();
 }
-
-//-------------------------------------------------------------------
-// Functions
-//-------------------------------------------------------------------
 
 #ifdef __MSYS__
 /*
@@ -87,7 +68,7 @@ char* strptime(const char* s, const char* f, struct tm* tm)
 
 bool s3fs_strtoofft(off_t* value, const char* str, int base)
 {
-    if(value == NULL || str == NULL){
+    if(value == nullptr || str == nullptr){
         return false;
     }
     errno = 0;
@@ -169,7 +150,7 @@ static std::string rawUrlEncode(const std::string &s, const char* except_chars)
     std::string result;
     for (size_t i = 0; i < s.length(); ++i) {
         unsigned char c = s[i];
-        if((except_chars && NULL != strchr(except_chars, c)) ||
+        if((except_chars && nullptr != strchr(except_chars, c)) ||
            (c >= 'a' && c <= 'z') ||
            (c >= 'A' && c <= 'Z') ||
            (c >= '0' && c <= '9') )
@@ -274,7 +255,7 @@ bool get_keyword_value(const std::string& target, const char* keyword, std::stri
 std::string get_date_rfc850()
 {
     char buf[100];
-    time_t t = time(NULL);
+    time_t t = time(nullptr);
     struct tm res;
     strftime(buf, sizeof(buf), "%a, %d %b %Y %H:%M:%S GMT", gmtime_r(&t, &res));
     return buf;
@@ -282,7 +263,7 @@ std::string get_date_rfc850()
 
 void get_date_sigv3(std::string& date, std::string& date8601)
 {
-    time_t tm = time(NULL);
+    time_t tm = time(nullptr);
     date     = get_date_string(tm);
     date8601 = get_date_iso8601(tm);
 }
@@ -310,7 +291,7 @@ bool get_unixtime_from_iso8601(const char* pdate, time_t& unixtime)
     }
 
     struct tm tm;
-    char*     prest = strptime(pdate, "%Y-%m-%dT%T", &tm);
+    const char* prest = strptime(pdate, "%Y-%m-%dT%T", &tm);
     if(prest == pdate){
         // wrong format
         return false;
@@ -392,31 +373,26 @@ std::string s3fs_hex_upper(const unsigned char* input, size_t length)
     return s3fs_hex(input, length, "0123456789ABCDEF");
 }
 
-char* s3fs_base64(const unsigned char* input, size_t length)
+std::string s3fs_base64(const unsigned char* input, size_t length)
 {
     static const char base[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
-    char* result;
 
-    if(!input || 0 == length){
-        return NULL;
-    }
-    result = new char[((length + 3 - 1) / 3) * 4 + 1];
+    std::string result;
+    result.reserve(((length + 3 - 1) / 3) * 4 + 1);
 
     unsigned char parts[4];
     size_t rpos;
-    size_t wpos;
-    for(rpos = 0, wpos = 0; rpos < length; rpos += 3){
+    for(rpos = 0; rpos < length; rpos += 3){
         parts[0] = (input[rpos] & 0xfc) >> 2;
         parts[1] = ((input[rpos] & 0x03) << 4) | ((((rpos + 1) < length ? input[rpos + 1] : 0x00) & 0xf0) >> 4);
         parts[2] = (rpos + 1) < length ? (((input[rpos + 1] & 0x0f) << 2) | ((((rpos + 2) < length ? input[rpos + 2] : 0x00) & 0xc0) >> 6)) : 0x40;
         parts[3] = (rpos + 2) < length ? (input[rpos + 2] & 0x3f) : 0x40;
 
-        result[wpos++] = base[parts[0]];
-        result[wpos++] = base[parts[1]];
-        result[wpos++] = base[parts[2]];
-        result[wpos++] = base[parts[3]];
+        result += base[parts[0]];
+        result += base[parts[1]];
+        result += base[parts[2]];
+        result += base[parts[3]];
     }
-    result[wpos] = '\0';
 
     return result;
 }
@@ -442,34 +418,28 @@ inline unsigned char char_decode64(const char ch)
     return by;
 }
 
-unsigned char* s3fs_decode64(const char* input, size_t input_len, size_t* plength)
+std::string s3fs_decode64(const char* input, size_t input_len)
 {
-    unsigned char* result;
-    if(!input || 0 == input_len || !plength){
-        return NULL;
-    }
-    result = new unsigned char[input_len / 4 * 3];
-
+    std::string result;
+    result.reserve(input_len / 4 * 3);
     unsigned char parts[4];
     size_t rpos;
-    size_t wpos;
-    for(rpos = 0, wpos = 0; rpos < input_len; rpos += 4){
+    for(rpos = 0; rpos < input_len; rpos += 4){
         parts[0] = char_decode64(input[rpos]);
         parts[1] = (rpos + 1) < input_len ? char_decode64(input[rpos + 1]) : 64;
         parts[2] = (rpos + 2) < input_len ? char_decode64(input[rpos + 2]) : 64;
         parts[3] = (rpos + 3) < input_len ? char_decode64(input[rpos + 3]) : 64;
 
-        result[wpos++] = ((parts[0] << 2) & 0xfc) | ((parts[1] >> 4) & 0x03);
+        result += static_cast<char>(((parts[0] << 2) & 0xfc) | ((parts[1] >> 4) & 0x03));
         if(64 == parts[2]){
             break;
         }
-        result[wpos++] = ((parts[1] << 4) & 0xf0) | ((parts[2] >> 2) & 0x0f);
+        result += static_cast<char>(((parts[1] << 4) & 0xf0) | ((parts[2] >> 2) & 0x0f));
         if(64 == parts[3]){
             break;
         }
-        result[wpos++] = ((parts[2] << 6) & 0xc0) | (parts[3] & 0x3f);
+        result += static_cast<char>(((parts[2] << 6) & 0xc0) | (parts[3] & 0x3f));
     }
-    *plength = wpos;
     return result;
 }
 

@@ -21,20 +21,19 @@
 // Generate junk data at high speed.  An alternative to dd if=/dev/urandom.
 
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 
-int main(int argc, char *argv[])
+int main(int argc, const char *argv[])
 {
     if (argc != 2) {
         return 1;
     }
-    long long count = strtoull(argv[1], NULL, 10);
+    uint64_t count = strtoull(argv[1], nullptr, 10);
     char buf[128 * 1024];
-    long long i;
-    for (i = 0; i < count; i += sizeof(buf)) {
-        long long j;
-        for (j = 0; j < sizeof(buf) / sizeof(i); ++j) {
-            *((long long *)buf + j) = i / sizeof(i) + j;
+    for (uint64_t i = 0; i < count; i += sizeof(buf)) {
+        for (uint64_t j = 0; j < sizeof(buf) / sizeof(i); ++j) {
+            *(reinterpret_cast<uint64_t *>(buf) + j) = i / sizeof(i) + j;
         }
         fwrite(buf, 1, sizeof(buf) > count - i ? count - i : sizeof(buf), stdout);
     }

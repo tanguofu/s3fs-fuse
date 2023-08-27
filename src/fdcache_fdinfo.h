@@ -21,6 +21,8 @@
 #ifndef S3FS_FDCACHE_FDINFO_H_
 #define S3FS_FDCACHE_FDINFO_H_
 
+#include <memory>
+
 #include "psemaphore.h"
 #include "metaheader.h"
 #include "autolock.h"
@@ -46,7 +48,7 @@ struct pseudofdinfo_thparam
     int           part_num;
     etagpair*     petag;
 
-    pseudofdinfo_thparam() : ppseudofdinfo(NULL), path(""), upload_id(""), upload_fd(-1), start(0), size(0), is_copy(false), part_num(-1), petag(NULL) {}
+    pseudofdinfo_thparam() : ppseudofdinfo(nullptr), path(""), upload_id(""), upload_fd(-1), start(0), size(0), is_copy(false), part_num(-1), petag(nullptr) {}
 };
 
 //------------------------------------------------
@@ -105,7 +107,7 @@ class PseudoFdInfo
         bool GetUploadId(std::string& id) const;
         bool GetEtaglist(etaglist_t& list) const;
 
-        bool AppendUploadPart(off_t start, off_t size, bool is_copy = false, etagpair** ppetag = NULL);
+        bool AppendUploadPart(off_t start, off_t size, bool is_copy = false, etagpair** ppetag = nullptr);
 
         bool ParallelMultipartUploadAll(const char* path, const mp_part_list_t& upload_list, const mp_part_list_t& copy_list, int& result);
 
@@ -113,7 +115,7 @@ class PseudoFdInfo
         bool ExtractUploadPartsFromAllArea(UntreatedParts& untreated_list, mp_part_list_t& to_upload_list, mp_part_list_t& to_copy_list, mp_part_list_t& to_download_list, filepart_list_t& cancel_upload_list, off_t max_mp_size, off_t file_size, bool use_copy);
 };
 
-typedef std::map<int, class PseudoFdInfo*> fdinfo_map_t;
+typedef std::map<int, std::unique_ptr<PseudoFdInfo>> fdinfo_map_t;
 
 #endif // S3FS_FDCACHE_FDINFO_H_
 

@@ -21,8 +21,8 @@
 #ifndef S3FS_FDCACHE_PAGE_H_
 #define S3FS_FDCACHE_PAGE_H_
 
-#include <list>
 #include <sys/types.h>
+#include <vector>
 
 //------------------------------------------------
 // Symbols
@@ -61,7 +61,7 @@ struct fdpage
         return (0 < bytes ? offset + bytes - 1 : 0);
     }
 };
-typedef std::list<struct fdpage> fdpage_list_t;
+typedef std::vector<struct fdpage> fdpage_list_t;
 
 //------------------------------------------------
 // Class PageList
@@ -79,11 +79,11 @@ class PageList
         bool          is_shrink;    // [NOTE] true if it has been shrinked even once
 
     public:
-        enum page_status{
-            PAGE_NOT_LOAD_MODIFIED = 0,
-            PAGE_LOADED,
-            PAGE_MODIFIED,
-            PAGE_LOAD_MODIFIED
+        enum class page_status{
+            NOT_LOAD_MODIFIED = 0,
+            LOADED,
+            MODIFIED,
+            LOAD_MODIFIED
         };
 
     private:
@@ -98,7 +98,8 @@ class PageList
         static void FreeList(fdpage_list_t& list);
 
         explicit PageList(off_t size = 0, bool is_loaded = false, bool is_modified = false, bool shrinked = false);
-        explicit PageList(const PageList& other);
+        PageList(const PageList&) = delete;
+        PageList& operator=(const PageList&) = delete;
         ~PageList();
 
         bool Init(off_t size, bool is_loaded, bool is_modified);
@@ -106,7 +107,7 @@ class PageList
         bool Resize(off_t size, bool is_loaded, bool is_modified);
 
         bool IsPageLoaded(off_t start = 0, off_t size = 0) const;                  // size=0 is checking to end of list
-        bool SetPageLoadedStatus(off_t start, off_t size, PageList::page_status pstatus = PAGE_LOADED, bool is_compress = true);
+        bool SetPageLoadedStatus(off_t start, off_t size, PageList::page_status pstatus = page_status::LOADED, bool is_compress = true);
         bool FindUnloadedPage(off_t start, off_t& resstart, off_t& ressize) const;
         off_t GetTotalUnloadedPageSize(off_t start = 0, off_t size = 0, off_t limit_size = 0) const;   // size=0 is checking to end of list
         size_t GetUnloadedPages(fdpage_list_t& unloaded_list, off_t start = 0, off_t size = 0) const;  // size=0 is checking to end of list

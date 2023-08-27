@@ -23,6 +23,7 @@
 #include <unistd.h>
 #include <cerrno>
 #include <grp.h>
+#include <memory>
 #include <pwd.h>
 #include <libgen.h>
 #include <dirent.h>
@@ -94,32 +95,27 @@ std::string get_username(uid_t uid)
 {
     size_t maxlen = max_password_size;
     int result;
-    char* pbuf;
     struct passwd pwinfo;
-    struct passwd* ppwinfo = NULL;
+    struct passwd* ppwinfo = nullptr;
 
     // make buffer
-    pbuf = new char[maxlen];
+    std::unique_ptr<char[]> pbuf(new char[maxlen]);
     // get pw information
-    while(ERANGE == (result = getpwuid_r(uid, &pwinfo, pbuf, maxlen, &ppwinfo))){
-        delete[] pbuf;
+    while(ERANGE == (result = getpwuid_r(uid, &pwinfo, pbuf.get(), maxlen, &ppwinfo))){
         maxlen *= 2;
-        pbuf = new char[maxlen];
+        pbuf.reset(new char[maxlen]);
     }
 
     if(0 != result){
         S3FS_PRN_ERR("could not get pw information(%d).", result);
-        delete[] pbuf;
-        return std::string("");
+        return "";
     }
 
     // check pw
-    if(NULL == ppwinfo){
-        delete[] pbuf;
-        return std::string("");
+    if(nullptr == ppwinfo){
+        return "";
     }
     std::string name = SAFESTRPTR(ppwinfo->pw_name);
-    delete[] pbuf;
     return name;
 }
 
@@ -127,29 +123,25 @@ int is_uid_include_group(uid_t uid, gid_t gid)
 {
     size_t maxlen = max_group_name_length;
     int result;
-    char* pbuf;
     struct group ginfo;
-    struct group* pginfo = NULL;
+    struct group* pginfo = nullptr;
 
     // make buffer
-    pbuf = new char[maxlen];
+    std::unique_ptr<char[]> pbuf(new char[maxlen]);
     // get group information
-    while(ERANGE == (result = getgrgid_r(gid, &ginfo, pbuf, maxlen, &pginfo))){
-        delete[] pbuf;
+    while(ERANGE == (result = getgrgid_r(gid, &ginfo, pbuf.get(), maxlen, &pginfo))){
         maxlen *= 2;
-        pbuf = new char[maxlen];
+        pbuf.reset(new char[maxlen]);
     }
 
     if(0 != result){
         S3FS_PRN_ERR("could not get group information(%d).", result);
-        delete[] pbuf;
         return -result;
     }
 
     // check group
-    if(NULL == pginfo){
+    if(nullptr == pginfo){
         // there is not gid in group.
-        delete[] pbuf;
         return -EINVAL;
     }
 
@@ -159,11 +151,9 @@ int is_uid_include_group(uid_t uid, gid_t gid)
     for(ppgr_mem = pginfo->gr_mem; ppgr_mem && *ppgr_mem; ppgr_mem++){
         if(username == *ppgr_mem){
             // Found username in group.
-            delete[] pbuf;
             return 1;
         }
     }
-    delete[] pbuf;
     return 0;
 }
 
@@ -177,7 +167,7 @@ int is_uid_include_group(uid_t uid, gid_t gid)
 // conflicts.
 // To avoid this, exclusive control is performed by mutex.
 //
-static pthread_mutex_t* pbasename_lock = NULL;
+static pthread_mutex_t* pbasename_lock = nullptr;
 
 bool init_basename_lock()
 {
@@ -197,7 +187,7 @@ bool init_basename_lock()
     if(0 != (result = pthread_mutex_init(pbasename_lock, &attr))){
         S3FS_PRN_ERR("failed to init pbasename_lock: %d.", result);
         delete pbasename_lock;
-        pbasename_lock = NULL;
+        pbasename_lock = nullptr;
         return false;
     }
     return true;
@@ -215,7 +205,7 @@ bool destroy_basename_lock()
         return false;
     }
     delete pbasename_lock;
-    pbasename_lock = NULL;
+    pbasename_lock = nullptr;
 
     return true;
 }
@@ -232,7 +222,7 @@ std::string mydirname(const std::string& path)
 std::string mydirname(const char* path)
 {
     if(!path || '\0' == path[0]){
-        return std::string("");
+        return "";
     }
 
     char *buf = strdup(path);
@@ -253,7 +243,7 @@ std::string mybasename(const std::string& path)
 std::string mybasename(const char* path)
 {
     if(!path || '\0' == path[0]){
-        return std::string("");
+        return "";
     }
 
     char *buf = strdup(path);
@@ -359,7 +349,7 @@ bool delete_files_in_dir(const char* dir, bool is_remove_own)
     DIR*           dp;
     struct dirent* dent;
 
-    if(NULL == (dp = opendir(dir))){
+    if(nullptr == (dp = opendir(dir))){
         S3FS_PRN_ERR("could not open dir(%s) - errno(%d)", dir, errno);
         return false;
     }
@@ -410,7 +400,7 @@ bool compare_sysname(const char* target)
     // The buffer size of sysname member in struct utsname is
     // OS dependent, but 512 bytes is sufficient for now.
     //
-    static char* psysname = NULL;
+    static char* psysname = nullptr;
     static char  sysname[512];
     if(!psysname){
         struct utsname sysinfo;
@@ -495,7 +485,7 @@ int compare_timespec(const struct stat& st, stat_time_type type, const struct ti
 
 void set_timespec_to_stat(struct stat& st, stat_time_type type, const struct timespec& ts)
 {
-    if(ST_TYPE_ATIME == type){
+    if(stat_time_type::ATIME == type){
         #if defined(__APPLE__)
             st.st_atime             = ts.tv_sec;
             st.st_atimespec.tv_nsec = ts.tv_nsec;
@@ -503,7 +493,7 @@ void set_timespec_to_stat(struct stat& st, stat_time_type type, const struct tim
             st.st_atim.tv_sec       = ts.tv_sec;
             st.st_atim.tv_nsec      = ts.tv_nsec;
         #endif
-    }else if(ST_TYPE_MTIME == type){
+    }else if(stat_time_type::MTIME == type){
         #if defined(__APPLE__)
             st.st_mtime             = ts.tv_sec;
             st.st_mtimespec.tv_nsec = ts.tv_nsec;
@@ -511,7 +501,7 @@ void set_timespec_to_stat(struct stat& st, stat_time_type type, const struct tim
             st.st_mtim.tv_sec       = ts.tv_sec;
             st.st_mtim.tv_nsec      = ts.tv_nsec;
         #endif
-    }else if(ST_TYPE_CTIME == type){
+    }else if(stat_time_type::CTIME == type){
         #if defined(__APPLE__)
             st.st_ctime             = ts.tv_sec;
             st.st_ctimespec.tv_nsec = ts.tv_nsec;
@@ -520,27 +510,27 @@ void set_timespec_to_stat(struct stat& st, stat_time_type type, const struct tim
             st.st_ctim.tv_nsec      = ts.tv_nsec;
         #endif
     }else{
-        S3FS_PRN_ERR("unknown type(%d), so skip to set value.", type);
+        S3FS_PRN_ERR("unknown type(%d), so skip to set value.", static_cast<int>(type));
     }
 }
 
 struct timespec* set_stat_to_timespec(const struct stat& st, stat_time_type type, struct timespec& ts)
 {
-    if(ST_TYPE_ATIME == type){
+    if(stat_time_type::ATIME == type){
         #if defined(__APPLE__)
            ts.tv_sec  = st.st_atime;
            ts.tv_nsec = st.st_atimespec.tv_nsec;
         #else
            ts         = st.st_atim;
         #endif
-    }else if(ST_TYPE_MTIME == type){
+    }else if(stat_time_type::MTIME == type){
         #if defined(__APPLE__)
            ts.tv_sec  = st.st_mtime;
            ts.tv_nsec = st.st_mtimespec.tv_nsec;
         #else
            ts         = st.st_mtim;
         #endif
-    }else if(ST_TYPE_CTIME == type){
+    }else if(stat_time_type::CTIME == type){
         #if defined(__APPLE__)
            ts.tv_sec  = st.st_ctime;
            ts.tv_nsec = st.st_ctimespec.tv_nsec;
@@ -548,7 +538,7 @@ struct timespec* set_stat_to_timespec(const struct stat& st, stat_time_type type
            ts         = st.st_ctim;
         #endif
     }else{
-        S3FS_PRN_ERR("unknown type(%d), so use 0 as timespec.", type);
+        S3FS_PRN_ERR("unknown type(%d), so use 0 as timespec.", static_cast<int>(type));
         ts.tv_sec     = 0;
         ts.tv_nsec    = 0;
     }
@@ -565,7 +555,7 @@ struct timespec* s3fs_realtime(struct timespec& ts)
 {
     if(-1 == clock_gettime(static_cast<clockid_t>(CLOCK_REALTIME), &ts)){
         S3FS_PRN_WARN("failed to clock_gettime by errno(%d)", errno);
-        ts.tv_sec  = time(NULL);
+        ts.tv_sec  = time(nullptr);
         ts.tv_nsec = 0;
     }
     return &ts;
@@ -574,7 +564,7 @@ struct timespec* s3fs_realtime(struct timespec& ts)
 std::string s3fs_str_realtime()
 {
     struct timespec ts;
-    return str(*(s3fs_realtime(ts)));
+    return str(*s3fs_realtime(ts));
 }
 
 /*

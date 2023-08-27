@@ -18,9 +18,11 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <errno.h>
+#include <memory>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -47,15 +49,13 @@ int PseudoFdInfo::opt_max_threads = -1;
 //
 void* PseudoFdInfo::MultipartUploadThreadWorker(void* arg)
 {
-    pseudofdinfo_thparam*   pthparam = static_cast<pseudofdinfo_thparam*>(arg);
+    std::unique_ptr<pseudofdinfo_thparam> pthparam(static_cast<pseudofdinfo_thparam*>(arg));
     if(!pthparam || !(pthparam->ppseudofdinfo)){
-        delete pthparam;
         return reinterpret_cast<void*>(-EIO);
     }
     S3FS_PRN_INFO3("Upload Part Thread [tpath=%s][start=%lld][size=%lld][part=%d]", pthparam->path.c_str(), static_cast<long long>(pthparam->start), static_cast<long long>(pthparam->size), pthparam->part_num);
 
     int       result;
-    S3fsCurl* s3fscurl;
     {
         AutoLock auto_lock(&(pthparam->ppseudofdinfo->upload_list_lock));
 
@@ -65,20 +65,19 @@ void* PseudoFdInfo::MultipartUploadThreadWorker(void* arg)
             if(!pthparam->ppseudofdinfo->CompleteInstruction(result, AutoLock::ALREADY_LOCKED)){    // result will be overwritten with the same value.
                 result = -EIO;
             }
-            delete pthparam;
             return reinterpret_cast<void*>(result);
         }
     }
 
     // setup and make curl object
-    if(NULL == (s3fscurl = S3fsCurl::CreateParallelS3fsCurl(pthparam->path.c_str(), pthparam->upload_fd, pthparam->start, pthparam->size, pthparam->part_num, pthparam->is_copy, pthparam->petag, pthparam->upload_id, result))){
+    std::unique_ptr<S3fsCurl> s3fscurl(S3fsCurl::CreateParallelS3fsCurl(pthparam->path.c_str(), pthparam->upload_fd, pthparam->start, pthparam->size, pthparam->part_num, pthparam->is_copy, pthparam->petag, pthparam->upload_id, result));
+    if(nullptr == s3fscurl){
         S3FS_PRN_ERR("failed creating s3fs curl object for uploading [path=%s][start=%lld][size=%lld][part=%d]", pthparam->path.c_str(), static_cast<long long>(pthparam->start), static_cast<long long>(pthparam->size), pthparam->part_num);
 
         // set result for exiting
         if(!pthparam->ppseudofdinfo->CompleteInstruction(result, AutoLock::NONE)){
             result = -EIO;
         }
-        delete pthparam;
         return reinterpret_cast<void*>(result);
     }
 
@@ -93,13 +92,11 @@ void* PseudoFdInfo::MultipartUploadThreadWorker(void* arg)
         S3FS_PRN_ERR("failed uploading with error(%d) [path=%s][start=%lld][size=%lld][part=%d]", result, pthparam->path.c_str(), static_cast<long long>(pthparam->start), static_cast<long long>(pthparam->size), pthparam->part_num);
     }
     s3fscurl->DestroyCurlHandle(true, false);
-    delete s3fscurl;
 
     // set result
     if(!pthparam->ppseudofdinfo->CompleteInstruction(result, AutoLock::NONE)){
         S3FS_PRN_WARN("This thread worker is about to end, so it doesn't return an EIO here and runs to the end.");
     }
-    delete pthparam;
 
     return reinterpret_cast<void*>(result);
 }
@@ -143,6 +140,8 @@ PseudoFdInfo::~PseudoFdInfo()
 
 bool PseudoFdInfo::Clear()
 {
+    // cppcheck-suppress unmatchedSuppression
+    // cppcheck-suppress knownConditionTrueFalse
     if(!CancelAllThreads() || !ResetUploadInfo(AutoLock::NONE)){
         return false;
     }
@@ -232,6 +231,8 @@ bool PseudoFdInfo::Readable() const
 bool PseudoFdInfo::ClearUploadInfo(bool is_cancel_mp)
 {
     if(is_cancel_mp){
+        // cppcheck-suppress unmatchedSuppression
+        // cppcheck-suppress knownConditionTrueFalse
         if(!CancelAllThreads()){
             return false;
         }
@@ -260,10 +261,14 @@ bool PseudoFdInfo::RowInitialUploadInfo(const std::string& id, bool is_cancel_mp
     }
 
     if(is_cancel_mp){
+        // cppcheck-suppress unmatchedSuppression
+        // cppcheck-suppress knownConditionTrueFalse
         if(!ClearUploadInfo(is_cancel_mp)){
             return false;
         }
     }else{
+        // cppcheck-suppress unmatchedSuppression
+        // cppcheck-suppress knownConditionTrueFalse
         if(!ResetUploadInfo(type)){
             return false;
         }
@@ -351,9 +356,8 @@ bool PseudoFdInfo::AppendUploadPart(off_t start, off_t size, bool is_copy, etagp
     int partnumber = static_cast<int>(upload_list.size()) + 1;
 
     // add new part
-    etagpair*   petag_entity = etag_entities.add(etagpair(NULL, partnumber));              // [NOTE] Create the etag entity and register it in the list.
-    filepart    newpart(false, physical_fd, start, size, is_copy, petag_entity);
-    upload_list.push_back(newpart);
+    etagpair*   petag_entity = etag_entities.add(etagpair(nullptr, partnumber));              // [NOTE] Create the etag entity and register it in the list.
+    upload_list.emplace_back(false, physical_fd, start, size, is_copy, petag_entity);
 
     // set etag pointer
     if(ppetag){
@@ -368,7 +372,7 @@ bool PseudoFdInfo::AppendUploadPart(off_t start, off_t size, bool is_copy, etagp
 //
 static bool filepart_partnum_compare(const filepart& src1, const filepart& src2)
 {
-    return (src1.get_part_number() <= src2.get_part_number());
+    return src1.get_part_number() < src2.get_part_number();
 }
 
 bool PseudoFdInfo::InsertUploadPart(off_t start, off_t size, int part_num, bool is_copy, etagpair** ppetag, AutoLock::Type type)
@@ -387,12 +391,11 @@ bool PseudoFdInfo::InsertUploadPart(off_t start, off_t size, int part_num, bool 
     AutoLock auto_lock(&upload_list_lock, type);
 
     // insert new part
-    etagpair*   petag_entity = etag_entities.add(etagpair(NULL, part_num));
-    filepart    newpart(false, physical_fd, start, size, is_copy, petag_entity);
-    upload_list.push_back(newpart);
+    etagpair*   petag_entity = etag_entities.add(etagpair(nullptr, part_num));
+    upload_list.emplace_back(false, physical_fd, start, size, is_copy, petag_entity);
 
     // sort by part number
-    upload_list.sort(filepart_partnum_compare);
+    std::sort(upload_list.begin(), upload_list.end(), filepart_partnum_compare);
 
     // set etag pointer
     *ppetag = petag_entity;
@@ -420,7 +423,7 @@ bool PseudoFdInfo::ParallelMultipartUpload(const char* path, const mp_part_list_
 
     for(mp_part_list_t::const_iterator iter = mplist.begin(); iter != mplist.end(); ++iter){
         // Insert upload part
-        etagpair* petag = NULL;
+        etagpair* petag = nullptr;
         if(!InsertUploadPart(iter->start, iter->size, iter->part_num, is_copy, &petag, AutoLock::ALREADY_LOCKED)){
             S3FS_PRN_ERR("Failed to insert insert upload part(path=%s, start=%lld, size=%lld, part=%d, copy=%s) to mplist", SAFESTRPTR(path), static_cast<long long int>(iter->start), static_cast<long long int>(iter->size), iter->part_num, (is_copy ? "true" : "false"));
             return false;
@@ -499,7 +502,7 @@ ssize_t PseudoFdInfo::UploadBoundaryLastUntreatedArea(const char* path, headers_
     S3FS_PRN_DBG("[path=%s][pseudo_fd=%d][physical_fd=%d]", SAFESTRPTR(path), pseudo_fd, physical_fd);
 
     if(!path || -1 == physical_fd || -1 == pseudo_fd || !pfdent){
-        S3FS_PRN_ERR("pseudo_fd(%d) to physical_fd(%d) for path(%s) is not opened or not writable, or pfdent is NULL.", pseudo_fd, physical_fd, path);
+        S3FS_PRN_ERR("pseudo_fd(%d) to physical_fd(%d) for path(%s) is not opened or not writable, or pfdent is nullptr.", pseudo_fd, physical_fd, path);
         return -EBADF;
     }
     AutoLock auto_lock(&upload_list_lock);
@@ -736,8 +739,8 @@ bool PseudoFdInfo::ExtractUploadPartsFromUntreatedArea(off_t& untreated_start, o
     // Add upload area to the list
     //
     while(max_mp_size <= aligned_size){
-        int part_num = (aligned_start / max_mp_size) + 1;
-        to_upload_list.push_back(mp_part(aligned_start, max_mp_size, part_num));
+        int part_num = static_cast<int>((aligned_start / max_mp_size) + 1);
+        to_upload_list.emplace_back(aligned_start, max_mp_size, part_num);
 
         aligned_start += max_mp_size;
         aligned_size  -= max_mp_size;
@@ -825,7 +828,7 @@ bool PseudoFdInfo::ExtractUploadPartsFromAllArea(UntreatedParts& untreated_list,
                     // - Add this untreated area to cur_untreated_list
                     // - Delete this from dup_untreated_list
                     //
-                    cur_untreated_list.push_back(untreatedpart(tmp_untreated_start, tmp_untreated_size));
+                    cur_untreated_list.emplace_back(tmp_untreated_start, tmp_untreated_size);
                     dup_untreated_iter = dup_untreated_list.erase(dup_untreated_iter);
                 }else{
                     //
@@ -836,7 +839,7 @@ bool PseudoFdInfo::ExtractUploadPartsFromAllArea(UntreatedParts& untreated_list,
                     tmp_untreated_size  = (cur_start + cur_size) - tmp_untreated_start;
 
                     // Add ajusted untreated area to cur_untreated_list
-                    cur_untreated_list.push_back(untreatedpart(tmp_untreated_start, tmp_untreated_size));
+                    cur_untreated_list.emplace_back(tmp_untreated_start, tmp_untreated_size);
 
                     // Remove this ajusted untreated area from the area pointed
                     // to by dup_untreated_iter.
@@ -884,7 +887,7 @@ bool PseudoFdInfo::ExtractUploadPartsFromAllArea(UntreatedParts& untreated_list,
         //
         // Create upload/download/cancel/copy list for this current area
         //
-        int part_num = (cur_start / max_mp_size) + 1;
+        int part_num = static_cast<int>((cur_start / max_mp_size) + 1);
         if(cur_untreated_list.empty()){
             //
             // No untreated area was detected in this current area
@@ -905,14 +908,14 @@ bool PseudoFdInfo::ExtractUploadPartsFromAllArea(UntreatedParts& untreated_list,
                     // Copy multipart upload available
                     //
                     S3FS_PRN_DBG("To copy: start=%lld, size=%lld", static_cast<long long int>(cur_start), static_cast<long long int>(cur_size));
-                    to_copy_list.push_back(mp_part(cur_start, cur_size, part_num));
+                    to_copy_list.emplace_back(cur_start, cur_size, part_num);
                 }else{
                     //
                     // This current area needs to be downloaded and uploaded
                     //
                     S3FS_PRN_DBG("To download and upload: start=%lld, size=%lld", static_cast<long long int>(cur_start), static_cast<long long int>(cur_size));
-                    to_download_list.push_back(mp_part(cur_start, cur_size));
-                    to_upload_list.push_back(mp_part(cur_start, cur_size, part_num));
+                    to_download_list.emplace_back(cur_start, cur_size);
+                    to_upload_list.emplace_back(cur_start, cur_size, part_num);
                 }
             }
         }else{
@@ -933,7 +936,7 @@ bool PseudoFdInfo::ExtractUploadPartsFromAllArea(UntreatedParts& untreated_list,
                 uploaded_iter = upload_list.erase(overlap_uploaded_iter);           // remove it from upload_list
 
                 S3FS_PRN_DBG("To upload: start=%lld, size=%lld", static_cast<long long int>(cur_start), static_cast<long long int>(cur_size));
-                to_upload_list.push_back(mp_part(cur_start, cur_size, part_num));   // add new uploading area to list
+                to_upload_list.emplace_back(cur_start, cur_size, part_num);   // add new uploading area to list
 
             }else{
                 //
@@ -994,7 +997,7 @@ bool PseudoFdInfo::ExtractUploadPartsFromAllArea(UntreatedParts& untreated_list,
                             // If this area is not unified, need to download this area
                             //
                             S3FS_PRN_DBG("To download: start=%lld, size=%lld", static_cast<long long int>(tmp_cur_start), static_cast<long long int>(tmp_cur_untreated_iter->start - tmp_cur_start));
-                            to_download_list.push_back(mp_part(tmp_cur_start, tmp_cur_untreated_iter->start - tmp_cur_start));
+                            to_download_list.emplace_back(tmp_cur_start, tmp_cur_untreated_iter->start - tmp_cur_start);
                         }
                     }
                     //
@@ -1009,14 +1012,14 @@ bool PseudoFdInfo::ExtractUploadPartsFromAllArea(UntreatedParts& untreated_list,
                 //
                 if(0 < tmp_cur_size){
                     S3FS_PRN_DBG("To download: start=%lld, size=%lld", static_cast<long long int>(tmp_cur_start), static_cast<long long int>(tmp_cur_size));
-                    to_download_list.push_back(mp_part(tmp_cur_start, tmp_cur_size));
+                    to_download_list.emplace_back(tmp_cur_start, tmp_cur_size);
                 }
 
                 //
                 // Set upload area(whole of area) to list
                 //
                 S3FS_PRN_DBG("To upload: start=%lld, size=%lld", static_cast<long long int>(changed_start), static_cast<long long int>(changed_size));
-                to_upload_list.push_back(mp_part(changed_start, changed_size, part_num));
+                to_upload_list.emplace_back(changed_start, changed_size, part_num);
             }
         }
     }

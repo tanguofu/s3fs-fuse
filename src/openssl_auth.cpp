@@ -18,6 +18,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+
 #include <cstdio>
 #include <cstdlib>
 #include <cerrno>
@@ -79,7 +81,7 @@ struct CRYPTO_dynlock_value
     pthread_mutex_t dyn_mutex;
 };
 
-static pthread_mutex_t* s3fs_crypt_mutex = NULL;
+static pthread_mutex_t* s3fs_crypt_mutex = nullptr;
 
 static void s3fs_crypt_mutex_lock(int mode, int pos, const char* file, int line) __attribute__ ((unused));
 static void s3fs_crypt_mutex_lock(int mode, int pos, const char* file, int line)
@@ -120,7 +122,7 @@ static struct CRYPTO_dynlock_value* s3fs_dyn_crypt_mutex(const char* file, int l
     int result;
     if(0 != (result = pthread_mutex_init(&(dyndata->dyn_mutex), &attr))){
         S3FS_PRN_CRIT("pthread_mutex_init returned: %d", result);
-        return NULL;
+        return nullptr;
     }
     return dyndata;
 }
@@ -160,7 +162,10 @@ static void s3fs_destroy_dyn_crypt_mutex(struct CRYPTO_dynlock_value* dyndata, c
 bool s3fs_init_crypt_mutex()
 {
     if(s3fs_crypt_mutex){
-        S3FS_PRN_DBG("s3fs_crypt_mutex is not NULL, destroy it.");
+        S3FS_PRN_DBG("s3fs_crypt_mutex is not nullptr, destroy it.");
+
+        // cppcheck-suppress unmatchedSuppression
+        // cppcheck-suppress knownConditionTrueFalse
         if(!s3fs_destroy_crypt_mutex()){
             S3FS_PRN_ERR("Failed to s3fs_crypt_mutex");
             return false;
@@ -196,11 +201,11 @@ bool s3fs_destroy_crypt_mutex()
         return true;
     }
 
-    CRYPTO_set_dynlock_destroy_callback(NULL);
-    CRYPTO_set_dynlock_lock_callback(NULL);
-    CRYPTO_set_dynlock_create_callback(NULL);
-    CRYPTO_set_id_callback(NULL);
-    CRYPTO_set_locking_callback(NULL);
+    CRYPTO_set_dynlock_destroy_callback(nullptr);
+    CRYPTO_set_dynlock_lock_callback(nullptr);
+    CRYPTO_set_dynlock_create_callback(nullptr);
+    CRYPTO_set_id_callback(nullptr);
+    CRYPTO_set_locking_callback(nullptr);
 
     for(int cnt = 0; cnt < CRYPTO_num_locks(); cnt++){
         int result = pthread_mutex_destroy(&s3fs_crypt_mutex[cnt]);
@@ -211,7 +216,7 @@ bool s3fs_destroy_crypt_mutex()
     }
     CRYPTO_cleanup_all_ex_data();
     delete[] s3fs_crypt_mutex;
-    s3fs_crypt_mutex = NULL;
+    s3fs_crypt_mutex = nullptr;
 
     return true;
 }
@@ -219,30 +224,30 @@ bool s3fs_destroy_crypt_mutex()
 //-------------------------------------------------------------------
 // Utility Function for HMAC
 //-------------------------------------------------------------------
-static bool s3fs_HMAC_RAW(const void* key, size_t keylen, const unsigned char* data, size_t datalen, unsigned char** digest, unsigned int* digestlen, bool is_sha256)
+static std::unique_ptr<unsigned char[]> s3fs_HMAC_RAW(const void* key, size_t keylen, const unsigned char* data, size_t datalen, unsigned int* digestlen, bool is_sha256)
 {
-    if(!key || !data || !digest || !digestlen){
-        return false;
+    if(!key || !data || !digestlen){
+        return nullptr;
     }
     (*digestlen) = EVP_MAX_MD_SIZE * sizeof(unsigned char);
-    *digest      = new unsigned char[*digestlen];
+    std::unique_ptr<unsigned char[]> digest(new unsigned char[*digestlen]);
     if(is_sha256){
-        HMAC(EVP_sha256(), key, static_cast<int>(keylen), data, datalen, *digest, digestlen);
+        HMAC(EVP_sha256(), key, static_cast<int>(keylen), data, datalen, digest.get(), digestlen);
     }else{
-        HMAC(EVP_sha1(), key, static_cast<int>(keylen), data, datalen, *digest, digestlen);
+        HMAC(EVP_sha1(), key, static_cast<int>(keylen), data, datalen, digest.get(), digestlen);
     }
 
-    return true;
+    return digest;
 }
 
-bool s3fs_HMAC(const void* key, size_t keylen, const unsigned char* data, size_t datalen, unsigned char** digest, unsigned int* digestlen)
+std::unique_ptr<unsigned char[]> s3fs_HMAC(const void* key, size_t keylen, const unsigned char* data, size_t datalen, unsigned int* digestlen)
 {
-    return s3fs_HMAC_RAW(key, keylen, data, datalen, digest, digestlen, false);
+    return s3fs_HMAC_RAW(key, keylen, data, datalen, digestlen, false);
 }
 
-bool s3fs_HMAC256(const void* key, size_t keylen, const unsigned char* data, size_t datalen, unsigned char** digest, unsigned int* digestlen)
+std::unique_ptr<unsigned char[]> s3fs_HMAC256(const void* key, size_t keylen, const unsigned char* data, size_t datalen, unsigned int* digestlen)
 {
-    return s3fs_HMAC_RAW(key, keylen, data, datalen, digest, digestlen, true);
+    return s3fs_HMAC_RAW(key, keylen, data, datalen, digestlen, true);
 }
 
 #ifdef USE_OPENSSL_30
@@ -253,29 +258,38 @@ bool s3fs_HMAC256(const void* key, size_t keylen, const unsigned char* data, siz
 // OpenSSL 3.0 deprecated the MD5_*** low-level encryption functions,
 // so we should use the high-level EVP API instead.
 //
-size_t get_md5_digest_length()
+
+bool s3fs_md5(const unsigned char* data, size_t datalen, md5_t* digest)
 {
-    return EVP_MD_size(EVP_md5());
+    unsigned int digestlen = static_cast<unsigned int>(digest->size());
+
+    const EVP_MD* md    = EVP_get_digestbyname("md5");
+    EVP_MD_CTX*   mdctx = EVP_MD_CTX_create();
+    EVP_DigestInit_ex(mdctx, md, nullptr);
+    EVP_DigestUpdate(mdctx, data, datalen);
+    EVP_DigestFinal_ex(mdctx, digest->data(), &digestlen);
+    EVP_MD_CTX_destroy(mdctx);
+
+    return true;
 }
 
-unsigned char* s3fs_md5_fd(int fd, off_t start, off_t size)
+bool s3fs_md5_fd(int fd, off_t start, off_t size, md5_t* result)
 {
     EVP_MD_CTX*    mdctx;
-    unsigned char* md5_digest;
-    unsigned int   md5_digest_len = get_md5_digest_length();
+    unsigned int   md5_digest_len = static_cast<unsigned int>(result->size());
     off_t          bytes;
 
     if(-1 == size){
         struct stat st;
         if(-1 == fstat(fd, &st)){
-            return NULL;
+            return false;
         }
         size = st.st_size;
     }
 
     // instead of MD5_Init
     mdctx = EVP_MD_CTX_new();
-    EVP_DigestInit_ex(mdctx, EVP_md5(), NULL);
+    EVP_DigestInit_ex(mdctx, EVP_md5(), nullptr);
 
     for(off_t total = 0; total < size; total += bytes){
         const off_t len = 512;
@@ -289,39 +303,48 @@ unsigned char* s3fs_md5_fd(int fd, off_t start, off_t size)
             // error
             S3FS_PRN_ERR("file read error(%d)", errno);
             EVP_MD_CTX_free(mdctx);
-            return NULL;
+            return false;
         }
         // instead of MD5_Update
         EVP_DigestUpdate(mdctx, buf, bytes);
     }
 
     // instead of MD5_Final
-    md5_digest = new unsigned char[md5_digest_len];
-    EVP_DigestFinal_ex(mdctx, md5_digest, &md5_digest_len);
+    EVP_DigestFinal_ex(mdctx, result->data(), &md5_digest_len);
     EVP_MD_CTX_free(mdctx);
 
-    return md5_digest;
+    return true;
 }
 
 #else
 //-------------------------------------------------------------------
 // Utility Function for MD5 (OpenSSL < 3.0)
 //-------------------------------------------------------------------
-size_t get_md5_digest_length()
+
+// TODO: Does this fail on OpenSSL < 3.0 and we need to use MD5_CTX functions?
+bool s3fs_md5(const unsigned char* data, size_t datalen, md5_t* digest)
 {
-    return MD5_DIGEST_LENGTH;
+    unsigned int digestlen = digest->size();
+
+    const EVP_MD* md    = EVP_get_digestbyname("md5");
+    EVP_MD_CTX*   mdctx = EVP_MD_CTX_create();
+    EVP_DigestInit_ex(mdctx, md, nullptr);
+    EVP_DigestUpdate(mdctx, data, datalen);
+    EVP_DigestFinal_ex(mdctx, digest->data(), &digestlen);
+    EVP_MD_CTX_destroy(mdctx);
+
+    return true;
 }
 
-unsigned char* s3fs_md5_fd(int fd, off_t start, off_t size)
+bool s3fs_md5_fd(int fd, off_t start, off_t size, md5_t* result)
 {
     MD5_CTX md5ctx;
     off_t   bytes;
-    unsigned char* result;
 
     if(-1 == size){
         struct stat st;
         if(-1 == fstat(fd, &st)){
-            return NULL;
+            return false;
         }
         size = st.st_size;
     }
@@ -339,62 +362,53 @@ unsigned char* s3fs_md5_fd(int fd, off_t start, off_t size)
         }else if(-1 == bytes){
             // error
             S3FS_PRN_ERR("file read error(%d)", errno);
-            return NULL;
+            return false;
         }
         MD5_Update(&md5ctx, buf, bytes);
     }
 
-    result = new unsigned char[get_md5_digest_length()];
-    MD5_Final(result, &md5ctx);
+    MD5_Final(result->data(), &md5ctx);
 
-    return result;
+    return true;
 }
 #endif
 
 //-------------------------------------------------------------------
 // Utility Function for SHA256
 //-------------------------------------------------------------------
-size_t get_sha256_digest_length()
+bool s3fs_sha256(const unsigned char* data, size_t datalen, sha256_t* digest)
 {
-    return SHA256_DIGEST_LENGTH;
-}
-
-bool s3fs_sha256(const unsigned char* data, size_t datalen, unsigned char** digest, unsigned int* digestlen)
-{
-    (*digestlen) = EVP_MAX_MD_SIZE * sizeof(unsigned char);
-    *digest      = new unsigned char[*digestlen];
-
     const EVP_MD* md    = EVP_get_digestbyname("sha256");
     EVP_MD_CTX*   mdctx = EVP_MD_CTX_create();
-    EVP_DigestInit_ex(mdctx, md, NULL);
+    EVP_DigestInit_ex(mdctx, md, nullptr);
     EVP_DigestUpdate(mdctx, data, datalen);
-    EVP_DigestFinal_ex(mdctx, *digest, digestlen);
+    unsigned int digestlen = static_cast<unsigned int>(digest->size());
+    EVP_DigestFinal_ex(mdctx, digest->data(), &digestlen);
     EVP_MD_CTX_destroy(mdctx);
 
     return true;
 }
 
-unsigned char* s3fs_sha256_fd(int fd, off_t start, off_t size)
+bool s3fs_sha256_fd(int fd, off_t start, off_t size, sha256_t* result)
 {
     const EVP_MD*  md = EVP_get_digestbyname("sha256");
     EVP_MD_CTX*    sha256ctx;
     off_t          bytes;
-    unsigned char* result;
 
     if(-1 == fd){
-        return NULL;
+        return false;
     }
     if(-1 == size){
         struct stat st;
         if(-1 == fstat(fd, &st)){
             S3FS_PRN_ERR("fstat error(%d)", errno);
-            return NULL;
+            return false;
         }
         size = st.st_size;
     }
 
     sha256ctx = EVP_MD_CTX_create();
-    EVP_DigestInit_ex(sha256ctx, md, NULL);
+    EVP_DigestInit_ex(sha256ctx, md, nullptr);
 
     for(off_t total = 0; total < size; total += bytes){
         const off_t len = 512;
@@ -408,15 +422,14 @@ unsigned char* s3fs_sha256_fd(int fd, off_t start, off_t size)
             // error
             S3FS_PRN_ERR("file read error(%d)", errno);
             EVP_MD_CTX_destroy(sha256ctx);
-            return NULL;
+            return false;
         }
         EVP_DigestUpdate(sha256ctx, buf, bytes);
     }
-    result = new unsigned char[get_sha256_digest_length()];
-    EVP_DigestFinal_ex(sha256ctx, result, NULL);
+    EVP_DigestFinal_ex(sha256ctx, result->data(), nullptr);
     EVP_MD_CTX_destroy(sha256ctx);
 
-    return result;
+    return true;
 }
 
 /*

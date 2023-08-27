@@ -40,7 +40,7 @@ class FdEntity
         // because the processing(request) at these updates is different.
         // Therefore, the pending state is expressed by this enum type.
         //
-        enum pending_status_t {
+        enum class pending_status_t {
             NO_UPDATE_PENDING = 0,
             UPDATE_META_PENDING,        // pending meta header
             CREATE_FILE_PENDING         // pending file creation and meta header
@@ -83,11 +83,11 @@ class FdEntity
         int NoCachePreMultipartPost(PseudoFdInfo* pseudo_obj);
         int NoCacheMultipartPost(PseudoFdInfo* pseudo_obj, int tgfd, off_t start, off_t size);
         int NoCacheCompleteMultipartPost(PseudoFdInfo* pseudo_obj);
-        int RowFlushNoMultipart(PseudoFdInfo* pseudo_obj, const char* tpath);
+        int RowFlushNoMultipart(const PseudoFdInfo* pseudo_obj, const char* tpath);
         int RowFlushMultipart(PseudoFdInfo* pseudo_obj, const char* tpath);
         int RowFlushMixMultipart(PseudoFdInfo* pseudo_obj, const char* tpath);
         int RowFlushStreamMultipart(PseudoFdInfo* pseudo_obj, const char* tpath);
-        ssize_t WriteNoMultipart(PseudoFdInfo* pseudo_obj, const char* bytes, off_t start, size_t size);
+        ssize_t WriteNoMultipart(const PseudoFdInfo* pseudo_obj, const char* bytes, off_t start, size_t size);
         ssize_t WriteMultipart(PseudoFdInfo* pseudo_obj, const char* bytes, off_t start, size_t size);
         ssize_t WriteMixMultipart(PseudoFdInfo* pseudo_obj, const char* bytes, off_t start, size_t size);
         ssize_t WriteStreamUpload(PseudoFdInfo* pseudo_obj, const char* bytes, off_t start, size_t size);
@@ -100,18 +100,18 @@ class FdEntity
         static bool GetStreamUpload() { return streamupload; }
         static bool SetStreamUpload(bool isstream);
 
-        explicit FdEntity(const char* tpath = NULL, const char* cpath = NULL);
+        explicit FdEntity(const char* tpath = nullptr, const char* cpath = nullptr);
         ~FdEntity();
 
         void Close(int fd);
         bool IsOpen() const { return (-1 != physical_fd); }
         bool FindPseudoFd(int fd, AutoLock::Type locktype = AutoLock::NONE) const;
         int Open(const headers_t* pmeta, off_t size, const struct timespec& ts_mctime, int flags, AutoLock::Type type);
-        bool LoadAll(int fd, headers_t* pmeta = NULL, off_t* size = NULL, bool force_load = false);
+        bool LoadAll(int fd, headers_t* pmeta = nullptr, off_t* size = nullptr, bool force_load = false);
         int Dup(int fd, AutoLock::Type locktype = AutoLock::NONE);
         int OpenPseudoFd(int flags = O_RDONLY, AutoLock::Type locktype = AutoLock::NONE);
         int GetOpenCount(AutoLock::Type locktype = AutoLock::NONE) const;
-        const char* GetPath() const { return path.c_str(); }
+        const std::string& GetPath() const { return path; }
         bool RenamePath(const std::string& newpath, std::string& fentmapkey);
         int GetPhysicalFd() const { return physical_fd; }
         bool IsModified() const;
@@ -140,7 +140,7 @@ class FdEntity
 
         off_t BytesModified();
         int RowFlush(int fd, const char* tpath, AutoLock::Type type, bool force_sync = false);
-        int Flush(int fd, AutoLock::Type type, bool force_sync = false) { return RowFlush(fd, NULL, type, force_sync); }
+        int Flush(int fd, AutoLock::Type type, bool force_sync = false) { return RowFlush(fd, nullptr, type, force_sync); }
 
         ssize_t Read(int fd, char* bytes, off_t start, size_t size, bool force_load = false);
         ssize_t Write(int fd, const char* bytes, off_t start, size_t size);

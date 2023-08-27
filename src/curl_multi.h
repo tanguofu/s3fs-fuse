@@ -21,15 +21,18 @@
 #ifndef S3FS_CURL_MULTI_H_
 #define S3FS_CURL_MULTI_H_
 
+#include <memory>
+#include <vector>
+
 //----------------------------------------------
 // Typedef
 //----------------------------------------------
 class S3fsCurl;
 
-typedef std::vector<S3fsCurl*>       s3fscurllist_t;
+typedef std::vector<std::unique_ptr<S3fsCurl>> s3fscurllist_t;
 typedef bool (*S3fsMultiSuccessCallback)(S3fsCurl* s3fscurl, void* param);  // callback for succeed multi request
 typedef bool (*S3fsMultiNotFoundCallback)(S3fsCurl* s3fscurl, void* param); // callback for succeed multi request
-typedef S3fsCurl* (*S3fsMultiRetryCallback)(S3fsCurl* s3fscurl);            // callback for failure and retrying
+typedef std::unique_ptr<S3fsCurl> (*S3fsMultiRetryCallback)(S3fsCurl* s3fscurl);  // callback for failure and retrying
 
 //----------------------------------------------
 // class S3fsMultiCurl
@@ -70,7 +73,7 @@ class S3fsMultiCurl
         void* SetSuccessCallbackParam(void* param);
         void* SetNotFoundCallbackParam(void* param);
         bool Clear() { return ClearEx(true); }
-        bool SetS3fsCurlObject(S3fsCurl* s3fscurl);
+        bool SetS3fsCurlObject(std::unique_ptr<S3fsCurl>&& s3fscurl);
         int Request();
 };
 

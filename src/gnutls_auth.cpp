@@ -75,7 +75,7 @@ bool s3fs_init_global_ssl()
         return false;
     }
 #ifndef USE_GNUTLS_NETTLE
-    if(NULL == gcry_check_version(NULL)){
+    if(nullptr == gcry_check_version(nullptr)){
         return false;
     }
 #endif // USE_GNUTLS_NETTLE
@@ -106,76 +106,72 @@ bool s3fs_destroy_crypt_mutex()
 //-------------------------------------------------------------------
 #ifdef USE_GNUTLS_NETTLE
 
-bool s3fs_HMAC(const void* key, size_t keylen, const unsigned char* data, size_t datalen, unsigned char** digest, unsigned int* digestlen)
+std::unique_ptr<unsigned char[]> s3fs_HMAC(const void* key, size_t keylen, const unsigned char* data, size_t datalen, unsigned int* digestlen)
 {
-    if(!key || !data || !digest || !digestlen){
-        return false;
+    if(!key || !data || !digestlen){
+        return nullptr;
     }
 
-    *digest = new unsigned char[SHA1_DIGEST_SIZE];
+    std::unique_ptr<unsigned char[]> digest(new unsigned char[SHA1_DIGEST_SIZE]);
 
     struct hmac_sha1_ctx ctx_hmac;
     hmac_sha1_set_key(&ctx_hmac, keylen, reinterpret_cast<const uint8_t*>(key));
     hmac_sha1_update(&ctx_hmac, datalen, reinterpret_cast<const uint8_t*>(data));
-    hmac_sha1_digest(&ctx_hmac, SHA1_DIGEST_SIZE, reinterpret_cast<uint8_t*>(*digest));
+    hmac_sha1_digest(&ctx_hmac, SHA1_DIGEST_SIZE, reinterpret_cast<uint8_t*>(digest.get()));
     *digestlen = SHA1_DIGEST_SIZE;
 
-    return true;
+    return digest;
 }
 
-bool s3fs_HMAC256(const void* key, size_t keylen, const unsigned char* data, size_t datalen, unsigned char** digest, unsigned int* digestlen)
+std::unique_ptr<unsigned char[]> s3fs_HMAC256(const void* key, size_t keylen, const unsigned char* data, size_t datalen, unsigned int* digestlen)
 {
-    if(!key || !data || !digest || !digestlen){
-        return false;
+    if(!key || !data || !digestlen){
+        return nullptr;
     }
 
-    *digest = new unsigned char[SHA256_DIGEST_SIZE];
+    std::unique_ptr<unsigned char[]> digest(new unsigned char[SHA256_DIGEST_SIZE]);
 
     struct hmac_sha256_ctx ctx_hmac;
     hmac_sha256_set_key(&ctx_hmac, keylen, reinterpret_cast<const uint8_t*>(key));
     hmac_sha256_update(&ctx_hmac, datalen, reinterpret_cast<const uint8_t*>(data));
-    hmac_sha256_digest(&ctx_hmac, SHA256_DIGEST_SIZE, reinterpret_cast<uint8_t*>(*digest));
+    hmac_sha256_digest(&ctx_hmac, SHA256_DIGEST_SIZE, reinterpret_cast<uint8_t*>(digest.get()));
     *digestlen = SHA256_DIGEST_SIZE;
 
-    return true;
+    return digest;
 }
 
 #else // USE_GNUTLS_NETTLE
 
-bool s3fs_HMAC(const void* key, size_t keylen, const unsigned char* data, size_t datalen, unsigned char** digest, unsigned int* digestlen)
+std::unique_ptr<unsigned char[]> s3fs_HMAC(const void* key, size_t keylen, const unsigned char* data, size_t datalen, unsigned int* digestlen)
 {
-    if(!key || !data || !digest || !digestlen){
-        return false;
+    if(!key || !data || !digestlen){
+        return nullptr;
     }
 
     if(0 == (*digestlen = gnutls_hmac_get_len(GNUTLS_MAC_SHA1))){
-        return false;
+        return nullptr;
     }
-    *digest = new unsigned char[*digestlen + 1];
-    if(0 > gnutls_hmac_fast(GNUTLS_MAC_SHA1, key, keylen, data, datalen, *digest)){
-        delete[] *digest;
-        *digest = NULL;
-        return false;
+    std::unique_ptr<unsigned char[]> digest(new unsigned char[*digestlen + 1]);
+    if(0 > gnutls_hmac_fast(GNUTLS_MAC_SHA1, key, keylen, data, datalen, digest.get())){
+        return nullptr;
     }
-    return true;
+    return digest;
 }
 
-bool s3fs_HMAC256(const void* key, size_t keylen, const unsigned char* data, size_t datalen, unsigned char** digest, unsigned int* digestlen)
+std::unique_ptr<unsigned char[]> s3fs_HMAC256(const void* key, size_t keylen, const unsigned char* data, size_t datalen, unsigned int* digestlen)
 {
-    if(!key || !data || !digest || !digestlen){
-        return false;
+    if(!key || !data || !digestlen){
+        return nullptr;
     }
 
     if(0 == (*digestlen = gnutls_hmac_get_len(GNUTLS_MAC_SHA256))){
-        return false;
+        return nullptr;
     }
-    *digest = new unsigned char[*digestlen + 1];
-    if(0 > gnutls_hmac_fast(GNUTLS_MAC_SHA256, key, keylen, data, datalen, *digest)){
-        delete[] *digest;
-        *digest = NULL;
-        return false;
+    std::unique_ptr<unsigned char[]> digest(new unsigned char[*digestlen + 1]);
+    if(0 > gnutls_hmac_fast(GNUTLS_MAC_SHA256, key, keylen, data, datalen, digest.get())){
+        return nullptr;
     }
-    return true;
+    return digest;
 }
 
 #endif // USE_GNUTLS_NETTLE
@@ -183,22 +179,26 @@ bool s3fs_HMAC256(const void* key, size_t keylen, const unsigned char* data, siz
 //-------------------------------------------------------------------
 // Utility Function for MD5
 //-------------------------------------------------------------------
-size_t get_md5_digest_length()
+#ifdef USE_GNUTLS_NETTLE
+bool s3fs_md5(const unsigned char* data, size_t datalen, md5_t* result)
 {
-    return 16;
+    struct md5_ctx ctx_md5;
+    md5_init(&ctx_md5);
+    md5_update(&ctx_md5, datalen, data);
+    md5_digest(&ctx_md5, result->size(), result->data());
+
+    return true;
 }
 
-#ifdef USE_GNUTLS_NETTLE
-unsigned char* s3fs_md5_fd(int fd, off_t start, off_t size)
+bool s3fs_md5_fd(int fd, off_t start, off_t size, md5_t* result)
 {
     struct md5_ctx ctx_md5;
     off_t          bytes;
-    unsigned char* result;
 
     if(-1 == size){
         struct stat st;
         if(-1 == fstat(fd, &st)){
-            return NULL;
+            return false;
         }
         size = st.st_size;
     }
@@ -216,36 +216,48 @@ unsigned char* s3fs_md5_fd(int fd, off_t start, off_t size)
         }else if(-1 == bytes){
             // error
             S3FS_PRN_ERR("file read error(%d)", errno);
-            return NULL;
+            return false;
         }
         md5_update(&ctx_md5, bytes, buf);
     }
-    result = new unsigned char[get_md5_digest_length()];
-    md5_digest(&ctx_md5, get_md5_digest_length(), result);
+    md5_digest(&ctx_md5, result->size(), result->data());
 
-    return result;
+    return true;
 }
 
 #else // USE_GNUTLS_NETTLE
 
-unsigned char* s3fs_md5_fd(int fd, off_t start, off_t size)
+bool s3fs_md5(const unsigned char* data, size_t datalen, md5_t* digest)
+{
+    gcry_md_hd_t   ctx_md5;
+    gcry_error_t   err;
+    if(GPG_ERR_NO_ERROR != (err = gcry_md_open(&ctx_md5, GCRY_MD_MD5, 0))){
+        S3FS_PRN_ERR("MD5 context creation failure: %s/%s", gcry_strsource(err), gcry_strerror(err));
+        return false;
+    }
+    gcry_md_write(ctx_md5, digest->data(), digest->size());
+    gcry_md_close(ctx_md5);
+
+    return true;
+}
+
+bool s3fs_md5_fd(int fd, off_t start, off_t size, md5_t* result)
 {
     gcry_md_hd_t ctx_md5;
     gcry_error_t err;
     off_t bytes;
-    unsigned char* result;
 
     if(-1 == size){
         struct stat st;
         if(-1 == fstat(fd, &st)){
-            return NULL;
+            return false;
         }
         size = st.st_size;
     }
 
     if(GPG_ERR_NO_ERROR != (err = gcry_md_open(&ctx_md5, GCRY_MD_MD5, 0))){
         S3FS_PRN_ERR("MD5 context creation failure: %s/%s", gcry_strsource(err), gcry_strerror(err));
-        return NULL;
+        return false;
     }
 
     for(off_t total = 0; total < size; total += bytes){
@@ -260,15 +272,14 @@ unsigned char* s3fs_md5_fd(int fd, off_t start, off_t size)
             // error
             S3FS_PRN_ERR("file read error(%d)", errno);
             gcry_md_close(ctx_md5);
-            return NULL;
+            return false;
         }
         gcry_md_write(ctx_md5, buf, bytes);
     }
-    result = new unsigned char[get_md5_digest_length()];
-    memcpy(result, gcry_md_read(ctx_md5, 0), get_md5_digest_length());
+    memcpy(result->data(), gcry_md_read(ctx_md5, 0), result->size());
     gcry_md_close(ctx_md5);
 
-    return result;
+    return true;
 }
 
 #endif // USE_GNUTLS_NETTLE
@@ -276,30 +287,21 @@ unsigned char* s3fs_md5_fd(int fd, off_t start, off_t size)
 //-------------------------------------------------------------------
 // Utility Function for SHA256
 //-------------------------------------------------------------------
-size_t get_sha256_digest_length()
-{
-    return 32;
-}
-
 #ifdef USE_GNUTLS_NETTLE
-bool s3fs_sha256(const unsigned char* data, size_t datalen, unsigned char** digest, unsigned int* digestlen)
+bool s3fs_sha256(const unsigned char* data, size_t datalen, sha256_t* digest)
 {
-    (*digestlen) = static_cast<unsigned int>(get_sha256_digest_length());
-    *digest = new unsigned char[*digestlen];
-
     struct sha256_ctx ctx_sha256;
     sha256_init(&ctx_sha256);
     sha256_update(&ctx_sha256, datalen, data);
-    sha256_digest(&ctx_sha256, *digestlen, *digest);
+    sha256_digest(&ctx_sha256, digest->size(), digest->data());
 
     return true;
 }
 
-unsigned char* s3fs_sha256_fd(int fd, off_t start, off_t size)
+bool s3fs_sha256_fd(int fd, off_t start, off_t size, sha256_t* result)
 {
     struct sha256_ctx ctx_sha256;
     off_t             bytes;
-    unsigned char*    result;
 
     sha256_init(&ctx_sha256);
 
@@ -314,55 +316,49 @@ unsigned char* s3fs_sha256_fd(int fd, off_t start, off_t size)
         }else if(-1 == bytes){
             // error
             S3FS_PRN_ERR("file read error(%d)", errno);
-            return NULL;
+            return false;
         }
         sha256_update(&ctx_sha256, bytes, buf);
     }
-    result = new unsigned char[get_sha256_digest_length()];
-    sha256_digest(&ctx_sha256, get_sha256_digest_length(), result);
+    sha256_digest(&ctx_sha256, result->size(), result->data());
 
-    return result;
+    return true;
 }
 
 #else // USE_GNUTLS_NETTLE
 
-bool s3fs_sha256(const unsigned char* data, size_t datalen, unsigned char** digest, unsigned int* digestlen)
+bool s3fs_sha256(const unsigned char* data, size_t datalen, sha256_t* digest)
 {
-    size_t len = (*digestlen) = static_cast<unsigned int>(get_sha256_digest_length());
-    *digest = new unsigned char[len];
-
     gcry_md_hd_t   ctx_sha256;
     gcry_error_t   err;
     if(GPG_ERR_NO_ERROR != (err = gcry_md_open(&ctx_sha256, GCRY_MD_SHA256, 0))){
         S3FS_PRN_ERR("SHA256 context creation failure: %s/%s", gcry_strsource(err), gcry_strerror(err));
-        delete[] *digest;
         return false;
     }
     gcry_md_write(ctx_sha256, data, datalen);
-    memcpy(*digest, gcry_md_read(ctx_sha256, 0), *digestlen);
+    memcpy(digest->data(), gcry_md_read(ctx_sha256, 0), digest->size());
     gcry_md_close(ctx_sha256);
 
     return true;
 }
 
-unsigned char* s3fs_sha256_fd(int fd, off_t start, off_t size)
+bool s3fs_sha256_fd(int fd, off_t start, off_t size, sha256_t* result)
 {
     gcry_md_hd_t   ctx_sha256;
     gcry_error_t   err;
     off_t          bytes;
-    unsigned char* result;
 
     if(-1 == size){
         struct stat st;
         if(-1 == fstat(fd, &st)){
-            return NULL;
+            return false;
         }
         size = st.st_size;
     }
 
     if(GPG_ERR_NO_ERROR != (err = gcry_md_open(&ctx_sha256, GCRY_MD_SHA256, 0))){
         S3FS_PRN_ERR("SHA256 context creation failure: %s/%s", gcry_strsource(err), gcry_strerror(err));
-        return NULL;
+        return false;
     }
 
     for(off_t total = 0; total < size; total += bytes){
@@ -377,15 +373,14 @@ unsigned char* s3fs_sha256_fd(int fd, off_t start, off_t size)
             // error
             S3FS_PRN_ERR("file read error(%d)", errno);
             gcry_md_close(ctx_sha256);
-            return NULL;
+            return false;
         }
         gcry_md_write(ctx_sha256, buf, bytes);
     }
-    result = new unsigned char[get_sha256_digest_length()];
-    memcpy(result, gcry_md_read(ctx_sha256, 0), get_sha256_digest_length());
+    memcpy(result->data(), gcry_md_read(ctx_sha256, 0), result->size());
     gcry_md_close(ctx_sha256);
 
-    return result;
+    return true;
 }
 
 #endif // USE_GNUTLS_NETTLE

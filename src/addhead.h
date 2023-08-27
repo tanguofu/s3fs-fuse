@@ -21,21 +21,40 @@
 #ifndef S3FS_ADDHEAD_H_
 #define S3FS_ADDHEAD_H_
 
+#include <memory>
 #include <regex.h>
+#include <vector>
 
 #include "metaheader.h"
 
 //----------------------------------------------
 // Structure / Typedef
 //----------------------------------------------
-typedef struct add_header{
-    regex_t*      pregex;         // not NULL means using regex, NULL means comparing suffix directly.
+struct add_header{
+    add_header(std::unique_ptr<regex_t> pregex, std::string basestring, std::string headkey, std::string headvalue)
+        : pregex(std::move(pregex))
+        , basestring(std::move(basestring))
+        , headkey(std::move(headkey))
+        , headvalue(std::move(headvalue))
+    {}
+    ~add_header() {
+        if(pregex){
+            regfree(pregex.get());
+        }
+    }
+
+    add_header(const add_header&) = delete;
+    add_header(add_header&& val) = default;
+    add_header& operator=(const add_header&) = delete;
+    add_header& operator=(add_header&&) = delete;
+
+    std::unique_ptr<regex_t> pregex;         // not nullptr means using regex, nullptr means comparing suffix directly.
     std::string   basestring;
     std::string   headkey;
     std::string   headvalue;
-}ADDHEAD;
+};
 
-typedef std::vector<ADDHEAD *> addheadlist_t;
+typedef std::vector<add_header> addheadlist_t;
 
 //----------------------------------------------
 // Class AdditionalHeader

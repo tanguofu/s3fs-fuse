@@ -22,8 +22,9 @@
 #include <cstdlib>
 #include <iostream>
 #include <climits>
-#include <string>
 #include <list>
+#include <string>
+#include <vector>
 
 #include <unistd.h>
 #include <sys/types.h>
@@ -41,8 +42,8 @@ struct write_block_part
     off_t size;
 };
 
-typedef std::list<write_block_part> wbpart_list_t;
-typedef std::list<std::string>      strlist_t;
+typedef std::vector<write_block_part> wbpart_list_t;
+typedef std::list<std::string>        strlist_t;
 
 //---------------------------------------------------------
 // Const
@@ -57,14 +58,14 @@ static unsigned char* create_random_data(off_t size)
     int fd;
     if(-1 == (fd = open("/dev/urandom", O_RDONLY))){
         std::cerr << "[ERROR] Could not open /dev/urandom" << std::endl;
-        return NULL;
+        return nullptr;
     }
 
     unsigned char* pbuff;
-    if(NULL == (pbuff = reinterpret_cast<unsigned char*>(malloc(size)))){
+    if(nullptr == (pbuff = reinterpret_cast<unsigned char*>(malloc(size)))){
         std::cerr << "[ERROR] Could not allocate memory." << std::endl;
         close(fd);
-        return NULL;
+        return nullptr;
     }
     for(ssize_t readpos = 0, readcnt = 0; readpos < size; readpos += readcnt){
         if(-1 == (readcnt = read(fd, &(pbuff[readpos]), static_cast<size_t>(size - readpos)))){
@@ -72,7 +73,7 @@ static unsigned char* create_random_data(off_t size)
                 std::cerr << "[ERROR] Failed reading from /dev/urandom with errno: " << errno << std::endl;
                 free(pbuff);
                 close(fd);
-                return NULL;
+                return nullptr;
             }
             readcnt = 0;
         }
@@ -87,7 +88,7 @@ static off_t cvt_string_to_number(const char* pstr)
     }
 
     errno            = 0;
-    char*     ptemp  = NULL;
+    char*     ptemp  = nullptr;
     long long result = strtoll(pstr, &ptemp, 10);
 
     if(!ptemp || ptemp == pstr || *ptemp != '\0'){
@@ -170,7 +171,7 @@ static bool parse_arguments(int argc, char** argv, strlist_t& files, wbpart_list
     while(-1 != (opt = getopt(argc, argv, "f:p:"))){
         switch(opt){
             case 'f':
-                files.push_back(std::string(optarg));
+                files.emplace_back(optarg);
                 break;
             case 'p':
                 if(!parse_write_blocks(optarg, wbparts, max_size)){
@@ -206,7 +207,7 @@ int main(int argc, char** argv)
 
     // make data and buffer
     unsigned char* pData;
-    if(NULL == (pData = create_random_data(max_size))){
+    if(nullptr == (pData = create_random_data(max_size))){
         exit(EXIT_FAILURE);
     }
 
@@ -216,18 +217,18 @@ int main(int argc, char** argv)
         struct stat st;
         if(0 == stat(fiter->c_str(), &st)){
             if(!S_ISREG(st.st_mode)){
-                std::cerr << "[ERROR] File " << fiter->c_str() << " is existed, but it is not regular file." << std::endl;
+                std::cerr << "[ERROR] File " << *fiter << " is existed, but it is not regular file." << std::endl;
                 free(pData);
                 exit(EXIT_FAILURE);
             }
             if(-1 == (fd = open(fiter->c_str(), O_WRONLY))){
-                std::cerr << "[ERROR] Could not open " << fiter->c_str() << std::endl;
+                std::cerr << "[ERROR] Could not open " << *fiter << std::endl;
                 free(pData);
                 exit(EXIT_FAILURE);
             }
         }else{
             if(-1 == (fd = open(fiter->c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644))){
-                std::cerr << "[ERROR] Could not create " << fiter->c_str() << std::endl;
+                std::cerr << "[ERROR] Could not create " << *fiter << std::endl;
                 free(pData);
                 exit(EXIT_FAILURE);
             }
@@ -239,7 +240,7 @@ int main(int argc, char** argv)
             for(ssize_t writepos = 0, writecnt = 0; writepos < piter->size; writepos += writecnt){
                 if(-1 == (writecnt = pwrite(fd, &(pData[writepos]), static_cast<size_t>(piter->size - writepos), (piter->start + writepos)))){
                     if(EAGAIN != errno && EWOULDBLOCK != errno && EINTR != errno){
-                        std::cerr << "[ERROR] Failed writing to " << fiter->c_str() << " by errno : " << errno << std::endl;
+                        std::cerr << "[ERROR] Failed writing to " << *fiter << " by errno : " << errno << std::endl;
                         close(fd);
                         free(pData);
                         exit(EXIT_FAILURE);

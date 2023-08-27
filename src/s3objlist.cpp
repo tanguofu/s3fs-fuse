@@ -84,7 +84,7 @@ bool S3ObjList::insert(const char* name, const char* etag, bool is_dir)
         (*iter).second.orgname = orgname;
         (*iter).second.is_dir  = is_dir;
         if(etag){
-            (*iter).second.etag = std::string(etag);  // over write
+            (*iter).second.etag = etag;  // over write
         }
     }else{
         // add new object
@@ -132,10 +132,10 @@ const s3obj_entry* S3ObjList::GetS3Obj(const char* name) const
     s3obj_t::const_iterator iter;
 
     if(!name || '\0' == name[0]){
-        return NULL;
+        return nullptr;
     }
     if(objects.end() == (iter = objects.find(name))){
-        return NULL;
+        return nullptr;
     }
     return &((*iter).second);
 }
@@ -145,10 +145,10 @@ std::string S3ObjList::GetOrgName(const char* name) const
     const s3obj_entry* ps3obj;
 
     if(!name || '\0' == name[0]){
-        return std::string("");
+        return "";
     }
-    if(NULL == (ps3obj = GetS3Obj(name))){
-        return std::string("");
+    if(nullptr == (ps3obj = GetS3Obj(name))){
+        return "";
     }
     return ps3obj->orgname;
 }
@@ -158,13 +158,13 @@ std::string S3ObjList::GetNormalizedName(const char* name) const
     const s3obj_entry* ps3obj;
 
     if(!name || '\0' == name[0]){
-        return std::string("");
+        return "";
     }
-    if(NULL == (ps3obj = GetS3Obj(name))){
-        return std::string("");
+    if(nullptr == (ps3obj = GetS3Obj(name))){
+        return "";
     }
     if(ps3obj->normalname.empty()){
-        return std::string(name);
+        return name;
     }
     return ps3obj->normalname;
 }
@@ -174,10 +174,10 @@ std::string S3ObjList::GetETag(const char* name) const
     const s3obj_entry* ps3obj;
 
     if(!name || '\0' == name[0]){
-        return std::string("");
+        return "";
     }
-    if(NULL == (ps3obj = GetS3Obj(name))){
-        return std::string("");
+    if(nullptr == (ps3obj = GetS3Obj(name))){
+        return "";
     }
     return ps3obj->etag;
 }
@@ -186,7 +186,7 @@ bool S3ObjList::IsDir(const char* name) const
 {
     const s3obj_entry* ps3obj;
 
-    if(NULL == (ps3obj = GetS3Obj(name))){
+    if(nullptr == (ps3obj = GetS3Obj(name))){
         return false;
     }
     return ps3obj->is_dir;
@@ -198,12 +198,12 @@ bool S3ObjList::GetLastName(std::string& lastname) const
     lastname = "";
     for(s3obj_t::const_iterator iter = objects.begin(); iter != objects.end(); ++iter){
         if((*iter).second.orgname.length()){
-            if(0 > strcmp(lastname.c_str(), (*iter).second.orgname.c_str())){
+            if(lastname.compare(iter->second.orgname) < 0){
                 lastname = (*iter).second.orgname;
                 result = true;
             }
         }else{
-            if(0 > strcmp(lastname.c_str(), (*iter).second.normalname.c_str())){
+            if(lastname.compare(iter->second.normalname) < 0){
                 lastname = (*iter).second.normalname;
                 result = true;
             }

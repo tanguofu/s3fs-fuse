@@ -37,23 +37,6 @@
 // This function is like curl_slist_append function, but this adds data by a-sorting.
 // Because AWS signature needs sorted header.
 //
-struct curl_slist* curl_slist_sort_insert(struct curl_slist* list, const char* data)
-{
-    if(!data){
-        return list;
-    }
-    std::string strkey = data;
-    std::string strval;
-
-    std::string::size_type pos = strkey.find(':', 0);
-    if(std::string::npos != pos){
-        strval = strkey.substr(pos + 1);
-        strkey.erase(pos);
-    }
-
-    return curl_slist_sort_insert(list, strkey.c_str(), strval.c_str());
-}
-
 struct curl_slist* curl_slist_sort_insert(struct curl_slist* list, const char* key, const char* value)
 {
     if(!key){
@@ -61,11 +44,11 @@ struct curl_slist* curl_slist_sort_insert(struct curl_slist* list, const char* k
     }
 
     // key & value are trimmed and lower (only key)
-    std::string strkey = trim(std::string(key));
-    std::string strval = value ? trim(std::string(value)) : "";
+    std::string strkey = trim(key);
+    std::string strval = value ? trim(value) : "";
     std::string strnew = key + std::string(": ") + strval;
     char* data;
-    if(NULL == (data = strdup(strnew.c_str()))){
+    if(nullptr == (data = strdup(strnew.c_str()))){
         return list;
     }
 
@@ -88,7 +71,7 @@ struct curl_slist* curl_slist_sort_insert(struct curl_slist* list, const char* k
     }
 
     struct curl_slist* new_item;
-    if(NULL == (new_item = static_cast<struct curl_slist*>(malloc(sizeof(*new_item))))){
+    if(nullptr == (new_item = static_cast<struct curl_slist*>(malloc(sizeof(*new_item))))){
         free(data);
         return list;
     }
@@ -107,7 +90,7 @@ struct curl_slist* curl_slist_remove(struct curl_slist* list, const char* key)
         return list;
     }
 
-    std::string strkey = trim(std::string(key));
+    std::string strkey = trim(key);
     struct curl_slist **p = &list;
     while(*p){
         std::string strcur = (*p)->data;
@@ -176,37 +159,6 @@ std::string get_header_value(const struct curl_slist* list, const std::string &k
     return "";
 }
 
-std::string get_canonical_headers(const struct curl_slist* list)
-{
-    std::string canonical_headers;
-
-    if(!list){
-        canonical_headers = "\n";
-        return canonical_headers;
-    }
-
-    for( ; list; list = list->next){
-        std::string strhead = list->data;
-        size_t pos;
-        if(std::string::npos != (pos = strhead.find(':', 0))){
-            std::string strkey = trim(lower(strhead.substr(0, pos)));
-            std::string strval = trim(strhead.substr(pos + 1));
-            if (strval.empty()) {
-                // skip empty-value headers (as they are discarded by libcurl)
-                continue;
-            }
-            strhead = strkey;
-            strhead += ":";
-            strhead += strval;
-        }else{
-            strhead = trim(lower(strhead));
-        }
-        canonical_headers += strhead;
-        canonical_headers += "\n";
-    }
-    return canonical_headers;
-}
-
 std::string get_canonical_headers(const struct curl_slist* list, bool only_amz)
 {
     std::string canonical_headers;
@@ -259,8 +211,8 @@ std::string prepare_url(const char* url)
     std::string uri;
     std::string hostname;
     std::string path;
-    std::string url_str = std::string(url);
-    std::string token = std::string("/") + S3fsCred::GetBucket();
+    std::string url_str = url;
+    std::string token = "/" + S3fsCred::GetBucket();
     size_t bucket_pos;
     size_t bucket_length = token.size();
     size_t uri_length = 0;
@@ -292,40 +244,18 @@ std::string prepare_url(const char* url)
     return url_str;
 }
 
-// [TODO]
-// This function uses temporary file, but should not use it.
-// For not using it, we implement function in each auth file(openssl, nss. gnutls).
-//
 bool make_md5_from_binary(const char* pstr, size_t length, std::string& md5)
 {
     if(!pstr || '\0' == pstr[0]){
         S3FS_PRN_ERR("Parameter is wrong.");
         return false;
     }
-    FILE* fp;
-    if(NULL == (fp = tmpfile())){
-        S3FS_PRN_ERR("Could not make tmpfile.");
+    md5_t binary;
+    if(!s3fs_md5(reinterpret_cast<const unsigned char*>(pstr), length, &binary)){
         return false;
     }
-    if(length != fwrite(pstr, sizeof(char), length, fp)){
-        S3FS_PRN_ERR("Failed to write tmpfile.");
-        fclose(fp);
-        return false;
-    }
-    int fd;
-    if(0 != fflush(fp) || 0 != fseek(fp, 0L, SEEK_SET) || -1 == (fd = fileno(fp))){
-        S3FS_PRN_ERR("Failed to make MD5.");
-        fclose(fp);
-        return false;
-    }
-    // base64 md5
-    md5 = s3fs_get_content_md5(fd);
-    if(md5.empty()){
-        S3FS_PRN_ERR("Failed to make MD5.");
-        fclose(fp);
-        return false;
-    }
-    fclose(fp);
+
+    md5 = s3fs_base64(binary.data(), binary.size());
     return true;
 }
 

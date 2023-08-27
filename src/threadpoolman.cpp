@@ -30,7 +30,7 @@
 //------------------------------------------------
 // ThreadPoolMan class variables
 //------------------------------------------------
-ThreadPoolMan* ThreadPoolMan::singleton = NULL;
+ThreadPoolMan* ThreadPoolMan::singleton = nullptr;
 
 //------------------------------------------------
 // ThreadPoolMan class methods
@@ -49,7 +49,7 @@ void ThreadPoolMan::Destroy()
 {
     if(ThreadPoolMan::singleton){
         delete ThreadPoolMan::singleton;
-        ThreadPoolMan::singleton = NULL;
+        ThreadPoolMan::singleton = nullptr;
     }
 }
 
@@ -96,13 +96,13 @@ void* ThreadPoolMan::Worker(void* arg)
                 }
             }else{
                 S3FS_PRN_WARN("Got a semaphore, but there is no instruction.");
-                pparam = NULL;
+                pparam = nullptr;
             }
         }
 
         if(pparam){
             void* retval     = pparam->pfunc(pparam->args);
-            if(NULL != retval){
+            if(nullptr != retval){
                 S3FS_PRN_WARN("The instruction function returned with somthign error code(%ld).", reinterpret_cast<long>(retval));
             }
             if(pparam->psem){
@@ -112,7 +112,7 @@ void* ThreadPoolMan::Worker(void* arg)
         }
     }
 
-    return NULL;
+    return nullptr;
 }
 
 //------------------------------------------------
@@ -198,13 +198,13 @@ bool ThreadPoolMan::StopThreads()
 
     // all threads to exit
     SetExitFlag(true);
-    for(uint waitcnt = thread_list.size(); 0 < waitcnt; --waitcnt){
+    for(size_t waitcnt = thread_list.size(); 0 < waitcnt; --waitcnt){
         thpoolman_sem.post();
     }
 
     // wait for threads exiting
     for(thread_list_t::const_iterator iter = thread_list.begin(); iter != thread_list.end(); ++iter){
-        void* retval = NULL;
+        void* retval = nullptr;
         int   result = pthread_join(*iter, &retval);
         if(result){
             S3FS_PRN_ERR("failed pthread_join - result(%d)", result);
@@ -236,6 +236,8 @@ bool ThreadPoolMan::StartThreads(int count)
     }
 
     // stop all thread if they are running.
+    // cppcheck-suppress unmatchedSuppression
+    // cppcheck-suppress knownConditionTrueFalse
     if(!StopThreads()){
         S3FS_PRN_ERR("Failed to stop existed threads.");
         return false;
@@ -247,7 +249,7 @@ bool ThreadPoolMan::StartThreads(int count)
         // run thread
         pthread_t thread;
         int       result;
-        if(0 != (result = pthread_create(&thread, NULL, ThreadPoolMan::Worker, static_cast<void*>(this)))){
+        if(0 != (result = pthread_create(&thread, nullptr, ThreadPoolMan::Worker, static_cast<void*>(this)))){
             S3FS_PRN_ERR("failed pthread_create with return code(%d)", result);
             StopThreads();        // if possible, stop all threads
             return false;
@@ -260,7 +262,7 @@ bool ThreadPoolMan::StartThreads(int count)
 bool ThreadPoolMan::SetInstruction(thpoolman_param* pparam)
 {
     if(!pparam){
-        S3FS_PRN_ERR("The parameter value is NULL.");
+        S3FS_PRN_ERR("The parameter value is nullptr.");
         return false;
     }
 

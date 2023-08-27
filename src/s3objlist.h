@@ -21,9 +21,9 @@
 #ifndef S3FS_S3OBJLIST_H_
 #define S3FS_S3OBJLIST_H_
 
-#include <list>
 #include <map>
 #include <string>
+#include <vector>
 
 //-------------------------------------------------------------------
 // Structure / Typedef
@@ -38,7 +38,7 @@ struct s3obj_entry{
 };
 
 typedef std::map<std::string, struct s3obj_entry> s3obj_t;
-typedef std::list<std::string> s3obj_list_t;
+typedef std::vector<std::string> s3obj_list_t;
 
 //-------------------------------------------------------------------
 // Class S3ObjList
@@ -47,6 +47,8 @@ class S3ObjList
 {
     private:
         s3obj_t objects;
+    public:
+        std::vector<std::string> common_prefixes;
 
     private:
         bool insert_normalized(const char* name, const char* normalized, bool is_dir);
@@ -60,7 +62,7 @@ class S3ObjList
         ~S3ObjList() {}
 
         bool IsEmpty() const { return objects.empty(); }
-        bool insert(const char* name, const char* etag = NULL, bool is_dir = false);
+        bool insert(const char* name, const char* etag = nullptr, bool is_dir = false);
         std::string GetOrgName(const char* name) const;
         std::string GetNormalizedName(const char* name) const;
         std::string GetETag(const char* name) const;

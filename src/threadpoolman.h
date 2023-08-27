@@ -21,6 +21,9 @@
 #ifndef S3FS_THREADPOOLMAN_H_
 #define S3FS_THREADPOOLMAN_H_
 
+#include <list>
+#include <vector>
+
 #include "psemaphore.h"
 
 //------------------------------------------------
@@ -36,7 +39,7 @@ typedef void* (*thpoolman_worker)(void*);               // same as start_routine
 //
 // [NOTE]
 // The args member is a value that is an argument of the worker function.
-// The psem member is allowed NULL. If it is not NULL, the post() method is
+// The psem member is allowed nullptr. If it is not nullptr, the post() method is
 // called when finishing the function.
 //
 struct thpoolman_param
@@ -45,12 +48,12 @@ struct thpoolman_param
     Semaphore*       psem;
     thpoolman_worker pfunc;
 
-    thpoolman_param() : args(NULL), psem(NULL), pfunc(NULL) {}
+    thpoolman_param() : args(nullptr), psem(nullptr), pfunc(nullptr) {}
 };
 
 typedef std::list<thpoolman_param*>  thpoolman_params_t;
 
-typedef std::list<pthread_t>  thread_list_t;
+typedef std::vector<pthread_t> thread_list_t;
 
 //------------------------------------------------
 // Class ThreadPoolMan

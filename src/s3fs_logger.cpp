@@ -20,6 +20,7 @@
 
 #include <cstdlib>
 #include <iomanip>
+#include <memory>
 #include <sstream>
 #include <string>
 
@@ -33,10 +34,10 @@ const int               S3fsLog::NEST_MAX;
 const char* const       S3fsLog::nest_spaces[S3fsLog::NEST_MAX] = {"", "  ", "    ", "      "};
 const char              S3fsLog::LOGFILEENV[]     = "S3FS_LOGFILE";
 const char              S3fsLog::MSGTIMESTAMP[]   = "S3FS_MSGTIMESTAMP";
-S3fsLog*                S3fsLog::pSingleton       = NULL;
+S3fsLog*                S3fsLog::pSingleton       = nullptr;
 S3fsLog::s3fs_log_level S3fsLog::debug_level      = S3fsLog::LEVEL_CRIT;
-FILE*                   S3fsLog::logfp            = NULL;
-std::string*            S3fsLog::plogfile         = NULL;
+FILE*                   S3fsLog::logfp            = nullptr;
+std::string*            S3fsLog::plogfile         = nullptr;
 bool                    S3fsLog::time_stamp       = true;
 
 //-------------------------------------------------------------------
@@ -59,7 +60,7 @@ std::string S3fsLog::GetCurrentTime()
             now.tv_sec  = tsnow.tv_sec;
             now.tv_usec = (tsnow.tv_nsec / 1000);
         }else{
-            gettimeofday(&now, NULL);
+            gettimeofday(&now, nullptr);
         }
         strftime(tmp, sizeof(tmp), "%Y-%m-%dT%H:%M:%S", gmtime_r(&now.tv_sec, &res));
         current_time << tmp << "." << std::setfill('0') << std::setw(3) << (now.tv_usec / 1000) << "Z ";
@@ -70,7 +71,7 @@ std::string S3fsLog::GetCurrentTime()
 bool S3fsLog::SetLogfile(const char* pfile)
 {
     if(!S3fsLog::pSingleton){
-        S3FS_PRN_CRIT("S3fsLog::pSingleton is NULL.");
+        S3FS_PRN_CRIT("S3fsLog::pSingleton is nullptr.");
         return false;
     }
     return S3fsLog::pSingleton->LowSetLogfile(pfile);
@@ -79,7 +80,7 @@ bool S3fsLog::SetLogfile(const char* pfile)
 bool S3fsLog::ReopenLogfile()
 {
     if(!S3fsLog::pSingleton){
-        S3FS_PRN_CRIT("S3fsLog::pSingleton is NULL.");
+        S3FS_PRN_CRIT("S3fsLog::pSingleton is nullptr.");
         return false;
     }
     if(!S3fsLog::logfp){
@@ -87,7 +88,7 @@ bool S3fsLog::ReopenLogfile()
         return true;
     }
     if(!S3fsLog::plogfile){
-        S3FS_PRN_ERR("There is a problem with the path to the log file being NULL.");
+        S3FS_PRN_ERR("There is a problem with the path to the log file being nullptr.");
         return false;
     }
     std::string tmp = *(S3fsLog::plogfile);
@@ -97,7 +98,7 @@ bool S3fsLog::ReopenLogfile()
 S3fsLog::s3fs_log_level S3fsLog::SetLogLevel(s3fs_log_level level)
 {
     if(!S3fsLog::pSingleton){
-        S3FS_PRN_CRIT("S3fsLog::pSingleton is NULL.");
+        S3FS_PRN_CRIT("S3fsLog::pSingleton is nullptr.");
         return S3fsLog::debug_level;    // Although it is an error, it returns the current value.
     }
     return S3fsLog::pSingleton->LowSetLogLevel(level);
@@ -106,7 +107,7 @@ S3fsLog::s3fs_log_level S3fsLog::SetLogLevel(s3fs_log_level level)
 S3fsLog::s3fs_log_level S3fsLog::BumpupLogLevel()
 {
     if(!S3fsLog::pSingleton){
-        S3FS_PRN_CRIT("S3fsLog::pSingleton is NULL.");
+        S3FS_PRN_CRIT("S3fsLog::pSingleton is nullptr.");
         return S3fsLog::debug_level;    // Although it is an error, it returns the current value.
     }
     return S3fsLog::pSingleton->LowBumpupLogLevel();
@@ -139,15 +140,15 @@ S3fsLog::~S3fsLog()
 {
     if(S3fsLog::pSingleton == this){
         FILE*    oldfp = S3fsLog::logfp;
-        S3fsLog::logfp = NULL;
+        S3fsLog::logfp = nullptr;
         if(oldfp && 0 != fclose(oldfp)){
             S3FS_PRN_ERR("Could not close old log file(%s), but continue...", (S3fsLog::plogfile ? S3fsLog::plogfile->c_str() : "null"));
         }
         if(S3fsLog::plogfile){
             delete S3fsLog::plogfile;
-            S3fsLog::plogfile = NULL;
+            S3fsLog::plogfile = nullptr;
         }
-        S3fsLog::pSingleton  = NULL;
+        S3fsLog::pSingleton  = nullptr;
         S3fsLog::debug_level = S3fsLog::LEVEL_CRIT;
 
         closelog();
@@ -163,12 +164,12 @@ bool S3fsLog::LowLoadEnv()
         return false;
     }
     char*    pEnvVal;
-    if(NULL != (pEnvVal = getenv(S3fsLog::LOGFILEENV))){
+    if(nullptr != (pEnvVal = getenv(S3fsLog::LOGFILEENV))){
         if(!SetLogfile(pEnvVal)){
             return false;
         }
     }
-    if(NULL != (pEnvVal = getenv(S3fsLog::MSGTIMESTAMP))){
+    if(nullptr != (pEnvVal = getenv(S3fsLog::MSGTIMESTAMP))){
         if(0 == strcasecmp(pEnvVal, "true") || 0 == strcasecmp(pEnvVal, "yes") || 0 == strcasecmp(pEnvVal, "1")){
             S3fsLog::time_stamp = true;
         }else if(0 == strcasecmp(pEnvVal, "false") || 0 == strcasecmp(pEnvVal, "no") || 0 == strcasecmp(pEnvVal, "0")){
@@ -193,10 +194,10 @@ bool S3fsLog::LowSetLogfile(const char* pfile)
             S3FS_PRN_ERR("Could not close log file(%s).", (S3fsLog::plogfile ? S3fsLog::plogfile->c_str() : "null"));
             return false;
         }
-        S3fsLog::logfp = NULL;
+        S3fsLog::logfp = nullptr;
         if(S3fsLog::plogfile){
             delete S3fsLog::plogfile;
-            S3fsLog::plogfile = NULL;
+            S3fsLog::plogfile = nullptr;
         }
     }else{
         // open new log file
@@ -205,7 +206,7 @@ bool S3fsLog::LowSetLogfile(const char* pfile)
         // It will reopen even if it is the same file.
         //
         FILE* newfp;
-        if(NULL == (newfp = fopen(pfile, "a+"))){
+        if(nullptr == (newfp = fopen(pfile, "a+"))){
             S3FS_PRN_ERR("Could not open log file(%s).", pfile);
             return false;
         }
@@ -261,24 +262,22 @@ void s3fs_low_logprn(S3fsLog::s3fs_log_level level, const char* file, const char
     if(S3fsLog::IsS3fsLogLevel(level)){
         va_list va;
         va_start(va, fmt);
-        size_t len = vsnprintf(NULL, 0, fmt, va) + 1;
+        size_t len = vsnprintf(nullptr, 0, fmt, va) + 1;
         va_end(va);
 
-        char *message = new char[len];
+        std::unique_ptr<char[]> message(new char[len]);
         va_start(va, fmt);
-        vsnprintf(message, len, fmt, va);
+        vsnprintf(message.get(), len, fmt, va);
         va_end(va);
 
         if(foreground || S3fsLog::IsSetLogFile()){
             S3fsLog::SeekEnd();
-            fprintf(S3fsLog::GetOutputLogFile(), "%s%s%s:%s(%d): %s\n", S3fsLog::GetCurrentTime().c_str(), S3fsLog::GetLevelString(level), file, func, line, message);
+            fprintf(S3fsLog::GetOutputLogFile(), "%s%s%s:%s(%d): %s\n", S3fsLog::GetCurrentTime().c_str(), S3fsLog::GetLevelString(level), file, func, line, message.get());
             S3fsLog::Flush();
         }else{
             // TODO: why does this differ from s3fs_low_logprn2?
-            syslog(S3fsLog::GetSyslogLevel(level), "%s%s:%s(%d): %s", instance_name.c_str(), file, func, line, message);
+            syslog(S3fsLog::GetSyslogLevel(level), "%s%s:%s(%d): %s", instance_name.c_str(), file, func, line, message.get());
         }
-
-        delete[] message;
     }
 }
 
@@ -287,23 +286,21 @@ void s3fs_low_logprn2(S3fsLog::s3fs_log_level level, int nest, const char* file,
     if(S3fsLog::IsS3fsLogLevel(level)){
         va_list va;
         va_start(va, fmt);
-        size_t len = vsnprintf(NULL, 0, fmt, va) + 1;
+        size_t len = vsnprintf(nullptr, 0, fmt, va) + 1;
         va_end(va);
 
-        char *message = new char[len];
+        std::unique_ptr<char[]> message(new char[len]);
         va_start(va, fmt);
-        vsnprintf(message, len, fmt, va);
+        vsnprintf(message.get(), len, fmt, va);
         va_end(va);
 
         if(foreground || S3fsLog::IsSetLogFile()){
             S3fsLog::SeekEnd();
-            fprintf(S3fsLog::GetOutputLogFile(), "%s%s%s%s:%s(%d): %s\n", S3fsLog::GetCurrentTime().c_str(), S3fsLog::GetLevelString(level), S3fsLog::GetS3fsLogNest(nest), file, func, line, message);
+            fprintf(S3fsLog::GetOutputLogFile(), "%s%s%s%s:%s(%d): %s\n", S3fsLog::GetCurrentTime().c_str(), S3fsLog::GetLevelString(level), S3fsLog::GetS3fsLogNest(nest), file, func, line, message.get());
             S3fsLog::Flush();
         }else{
-            syslog(S3fsLog::GetSyslogLevel(level), "%s%s%s", instance_name.c_str(), S3fsLog::GetS3fsLogNest(nest), message);
+            syslog(S3fsLog::GetSyslogLevel(level), "%s%s%s", instance_name.c_str(), S3fsLog::GetS3fsLogNest(nest), message.get());
         }
-
-        delete[] message;
     }
 }
 

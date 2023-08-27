@@ -389,6 +389,8 @@ function test_external_directory_creation {
     describe "Test external directory creation ..."
     local OBJECT_NAME; OBJECT_NAME=$(basename "${PWD}")/directory/"${TEST_TEXT_FILE}"
     echo "data" | aws_cli s3 cp - "s3://${TEST_BUCKET_1}/${OBJECT_NAME}"
+    # shellcheck disable=SC2010
+    ls | grep -q directory
     ls directory >/dev/null 2>&1
     get_permissions directory | grep -q 750$
     ls directory
@@ -813,6 +815,10 @@ function test_extended_attributes {
     touch "${TEST_TEXT_FILE}"
 
     # set value
+    set_xattr key1 value0 "${TEST_TEXT_FILE}"
+    get_xattr key1 "${TEST_TEXT_FILE}" | grep -q '^value0$'
+
+    # over write value
     set_xattr key1 value1 "${TEST_TEXT_FILE}"
     get_xattr key1 "${TEST_TEXT_FILE}" | grep -q '^value1$'
 
@@ -1931,32 +1937,16 @@ function test_content_type() {
     local DIR_NAME; DIR_NAME=$(basename "${PWD}")
 
     touch "test.txt"
-    local CONTENT_TYPE; CONTENT_TYPE=$(aws_cli s3api head-object --bucket "${TEST_BUCKET_1}" --key "${DIR_NAME}/test.txt" | grep "ContentType")
-    if ! echo "${CONTENT_TYPE}" | grep -q "text/plain"; then
-        echo "Unexpected Content-Type: ${CONTENT_TYPE}"
-        return 1;
-    fi
+    check_content_type "${DIR_NAME}/test.txt" "text/plain"
 
     touch "test.jpg"
-    CONTENT_TYPE=$(aws_cli s3api head-object --bucket "${TEST_BUCKET_1}" --key "${DIR_NAME}/test.jpg" | grep "ContentType")
-    if ! echo "${CONTENT_TYPE}" | grep -q "image/jpeg"; then
-        echo "Unexpected Content-Type: ${CONTENT_TYPE}"
-        return 1;
-    fi
+    check_content_type "${DIR_NAME}/test.jpg" "image/jpeg"
 
     touch "test.bin"
-    CONTENT_TYPE=$(aws_cli s3api head-object --bucket "${TEST_BUCKET_1}" --key "${DIR_NAME}/test.bin" | grep "ContentType")
-    if ! echo "${CONTENT_TYPE}" | grep -q "application/octet-stream"; then
-        echo "Unexpected Content-Type: ${CONTENT_TYPE}"
-        return 1;
-    fi
+    check_content_type "${DIR_NAME}/test.bin" "application/octet-stream"
 
     mkdir "test.dir"
-    CONTENT_TYPE=$(aws_cli s3api head-object --bucket "${TEST_BUCKET_1}" --key "${DIR_NAME}/test.dir/" | grep "ContentType")
-    if ! echo "${CONTENT_TYPE}" | grep -q "application/x-directory"; then
-        echo "Unexpected Content-Type: ${CONTENT_TYPE}"
-        return 1;
-    fi
+    check_content_type "${DIR_NAME}/test.dir/" "application/x-directory"
 
     rm -f test.txt
     rm -f test.jpg
@@ -2252,142 +2242,64 @@ function test_not_existed_dir_obj() {
     echo data1 | aws_cli s3 cp - "s3://${TEST_BUCKET_1}/${OBJECT_NAME_1}"
     echo data2 | aws_cli s3 cp - "s3://${TEST_BUCKET_1}/${OBJECT_NAME_2}"
 
-    # shellcheck disable=SC2009
-    if ps u -p "${S3FS_PID}" | grep -q compat_dir; then
-        #
-        # with "compat_dir", found directories and files
-        #
-
-        # Top directory
-        # shellcheck disable=SC2010
-        if ! ls -1 | grep -q '^not_existed_dir_single$'; then
-            echo "Expect to find \"not_existed_dir_single\" directory, but it is not found"
-            return 1;
-        fi
-        # shellcheck disable=SC2010
-        if ! ls -1 | grep -q '^not_existed_dir_parent$'; then
-            echo "Expect to find \"not_existed_dir_parent\" directory, but it is not found"
-            return 1;
-        fi
-
-        # Single nest directory
-        # shellcheck disable=SC2010
-        if ! ls -d not_existed_dir_single | grep -q '^not_existed_dir_single$'; then
-            echo "Expect to find \"not_existed_dir_single\" directory, but it is not found"
-            return 1;
-        fi
-        # shellcheck disable=SC2010
-        if ! ls -1 not_existed_dir_single | grep -q "^${TEST_TEXT_FILE}\$"; then
-            echo "Expect to find \"not_existed_dir_single/${TEST_TEXT_FILE}\" file, but it is not found"
-            return 1;
-        fi
-        # shellcheck disable=SC2010
-        if ! ls -1 "not_existed_dir_single/${TEST_TEXT_FILE}" | grep -q "^not_existed_dir_single/${TEST_TEXT_FILE}\$"; then
-            echo "Expect to find \"not_existed_dir_single/${TEST_TEXT_FILE}\" file, but it is not found"
-            return 1;
-        fi
-
-        # Double nest directory
-        # shellcheck disable=SC2010
-        if ! ls -d not_existed_dir_parent | grep -q '^not_existed_dir_parent'; then
-            echo "Expect to find \"not_existed_dir_parent\" directory, but it is not found"
-            return 1;
-        fi
-        # shellcheck disable=SC2010
-        if ! ls -1 not_existed_dir_parent | grep -q '^not_existed_dir_child'; then
-            echo "Expect to find \"not_existed_dir_parent/not_existed_dir_child\" directory, but it is not found"
-            return 1;
-        fi
-        # shellcheck disable=SC2010
-        if ! ls -d not_existed_dir_parent/not_existed_dir_child | grep -q '^not_existed_dir_parent/not_existed_dir_child'; then
-            echo "Expect to find \"not_existed_dir_parent/not_existed_dir_child\" directory, but it is not found"
-            return 1;
-        fi
-        # shellcheck disable=SC2010
-        if ! ls -1 not_existed_dir_parent/not_existed_dir_child | grep -q "^${TEST_TEXT_FILE}\$"; then
-            echo "Expect to find \"not_existed_dir_parent/not_existed_dir_child/${TEST_TEXT_FILE}\" directory, but it is not found"
-            return 1;
-        fi
-        # shellcheck disable=SC2010
-        if ! ls -1 "not_existed_dir_parent/not_existed_dir_child/${TEST_TEXT_FILE}" | grep -q "^not_existed_dir_parent/not_existed_dir_child/${TEST_TEXT_FILE}\$"; then
-            echo "Expect to find \"not_existed_dir_parent/not_existed_dir_child/${TEST_TEXT_FILE}\" directory, but it is not found"
-            return 1;
-        fi
-
-        rm -rf not_existed_dir_single
-        rm -rf not_existed_dir_parent
-
-    else
-        #
-        # without "compat_dir", found directories and files
-        #
-        # [NOTE]
-        # If specify a directory path, the file under that directory will be found.
-        # And if specify a file full path, it will be found.
-        #
-
-        # Top directory
-        # shellcheck disable=SC2010
-        if ls -1 | grep -q '^not_existed_dir_single$'; then
-            echo "Expect to not find \"not_existed_dir_single\" directory, but it is found"
-            return 1;
-        fi
-        # shellcheck disable=SC2010
-        if ls -1 | grep -q '^not_existed_dir_parent$'; then
-            echo "Expect to not find \"not_existed_dir_parent\" directory, but it is found"
-            return 1;
-        fi
-
-        # Single nest directory
-        # shellcheck disable=SC2010
-        if ! ls -d not_existed_dir_single | grep -q '^not_existed_dir_single$'; then
-            echo "Expect to find \"not_existed_dir_single\" directory, but it is not found"
-            return 1;
-        fi
-        # shellcheck disable=SC2010
-        if ! ls -1 not_existed_dir_single | grep -q "^${TEST_TEXT_FILE}\$"; then
-            echo "Expect to find \"not_existed_dir_single/${TEST_TEXT_FILE}\" file, but it is not found"
-            return 1;
-        fi
-        # shellcheck disable=SC2010
-        if ! ls -1 "not_existed_dir_single/${TEST_TEXT_FILE}" | grep -q "^not_existed_dir_single/${TEST_TEXT_FILE}\$"; then
-            echo "Expect to find \"not_existed_dir_single/${TEST_TEXT_FILE}\" file, but it is not found"
-            return 1;
-        fi
-
-        # Double nest directory
-        # shellcheck disable=SC2010
-        if ! ls -d not_existed_dir_parent | grep -q '^not_existed_dir_parent'; then
-            echo "Expect to find \"not_existed_dir_parent\" directory, but it is not found"
-            return 1;
-        fi
-        # shellcheck disable=SC2010
-        if ls -1 not_existed_dir_parent | grep -q '^not_existed_dir_child'; then
-            echo "Expect to not find \"not_existed_dir_parent/not_existed_dir_child\" directory, but it is found"
-            return 1;
-        fi
-        # shellcheck disable=SC2010
-        if ! ls -d not_existed_dir_parent/not_existed_dir_child | grep -q '^not_existed_dir_parent/not_existed_dir_child'; then
-            echo "Expect to find \"not_existed_dir_parent/not_existed_dir_child\" directory, but it is not found"
-            return 1;
-        fi
-        # shellcheck disable=SC2010
-        if ! ls -1 not_existed_dir_parent/not_existed_dir_child | grep -q "^${TEST_TEXT_FILE}\$"; then
-            echo "Expect to find \"not_existed_dir_parent/not_existed_dir_child/${TEST_TEXT_FILE}\" directory, but it is not found"
-            return 1;
-        fi
-        # shellcheck disable=SC2010
-        if ! ls -1 "not_existed_dir_parent/not_existed_dir_child/${TEST_TEXT_FILE}" | grep -q "^not_existed_dir_parent/not_existed_dir_child/${TEST_TEXT_FILE}\$"; then
-            echo "Expect to find \"not_existed_dir_parent/not_existed_dir_child/${TEST_TEXT_FILE}\" directory, but it is not found"
-            return 1;
-        fi
-
-        rm -rf not_existed_dir_single
-
-        # [NOTE]
-        # This case could not remove sub directory, then below command will be failed.
-        #rm -rf not_existed_dir_parent
+    # Top directory
+    # shellcheck disable=SC2010
+    if ! ls -1 | grep -q '^not_existed_dir_single$'; then
+    echo "Expect to find \"not_existed_dir_single\" directory, but it is not found"
+    return 1;
     fi
+    # shellcheck disable=SC2010
+    if ! ls -1 | grep -q '^not_existed_dir_parent$'; then
+    echo "Expect to find \"not_existed_dir_parent\" directory, but it is not found"
+    return 1;
+    fi
+
+    # Single nest directory
+    # shellcheck disable=SC2010
+    if ! ls -d not_existed_dir_single | grep -q '^not_existed_dir_single$'; then
+    echo "Expect to find \"not_existed_dir_single\" directory, but it is not found"
+    return 1;
+    fi
+    # shellcheck disable=SC2010
+    if ! ls -1 not_existed_dir_single | grep -q "^${TEST_TEXT_FILE}\$"; then
+    echo "Expect to find \"not_existed_dir_single/${TEST_TEXT_FILE}\" file, but it is not found"
+    return 1;
+    fi
+    # shellcheck disable=SC2010
+    if ! ls -1 "not_existed_dir_single/${TEST_TEXT_FILE}" | grep -q "^not_existed_dir_single/${TEST_TEXT_FILE}\$"; then
+    echo "Expect to find \"not_existed_dir_single/${TEST_TEXT_FILE}\" file, but it is not found"
+    return 1;
+    fi
+
+    # Double nest directory
+    # shellcheck disable=SC2010
+    if ! ls -d not_existed_dir_parent | grep -q '^not_existed_dir_parent'; then
+    echo "Expect to find \"not_existed_dir_parent\" directory, but it is not found"
+    return 1;
+    fi
+    # shellcheck disable=SC2010
+    if ! ls -1 not_existed_dir_parent | grep -q '^not_existed_dir_child'; then
+    echo "Expect to find \"not_existed_dir_parent/not_existed_dir_child\" directory, but it is not found"
+    return 1;
+    fi
+    # shellcheck disable=SC2010
+    if ! ls -d not_existed_dir_parent/not_existed_dir_child | grep -q '^not_existed_dir_parent/not_existed_dir_child'; then
+    echo "Expect to find \"not_existed_dir_parent/not_existed_dir_child\" directory, but it is not found"
+    return 1;
+    fi
+    # shellcheck disable=SC2010
+    if ! ls -1 not_existed_dir_parent/not_existed_dir_child | grep -q "^${TEST_TEXT_FILE}\$"; then
+    echo "Expect to find \"not_existed_dir_parent/not_existed_dir_child/${TEST_TEXT_FILE}\" directory, but it is not found"
+    return 1;
+    fi
+    # shellcheck disable=SC2010
+    if ! ls -1 "not_existed_dir_parent/not_existed_dir_child/${TEST_TEXT_FILE}" | grep -q "^not_existed_dir_parent/not_existed_dir_child/${TEST_TEXT_FILE}\$"; then
+    echo "Expect to find \"not_existed_dir_parent/not_existed_dir_child/${TEST_TEXT_FILE}\" directory, but it is not found"
+    return 1;
+    fi
+
+    rm -rf not_existed_dir_single
+    rm -rf not_existed_dir_parent
 }
 
 function test_ut_ossfs {
@@ -2625,11 +2537,34 @@ function test_time_mountpoint {
     fi
 }
 
+function test_file_names_longer_than_posix() {
+    local DIR_NAME; DIR_NAME=$(basename "${PWD}")
+    a256="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    #a256="aaaa"
+
+    if ! touch "${a256}"; then
+        echo "could not create long file name"
+        return 1
+    fi
+    rm -f "${a256}"
+
+    echo data | aws_cli s3 cp - "s3://${TEST_BUCKET_1}/${DIR_NAME}/${a256}"
+    # shellcheck disable=SC2012
+    count=$(ls | wc -l)
+    if [ "${count}" = 0 ]; then
+        echo "failed to list long file name"
+        return 1
+    fi
+    rm -f "${a256}"
+}
+
 function add_all_tests {
     # shellcheck disable=SC2009
     if ps u -p "${S3FS_PID}" | grep -q use_cache; then
         add_tests test_cache_file_stat
         add_tests test_zero_cache_file_stat
+    else
+        add_tests test_file_names_longer_than_posix
     fi
     # shellcheck disable=SC2009
     if ! ps u -p "${S3FS_PID}" | grep -q ensure_diskfree && ! uname | grep -q Darwin; then

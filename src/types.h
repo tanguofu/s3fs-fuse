@@ -54,118 +54,82 @@
 // This header is url encoded string which is json formatted.
 //   x-amz-meta-xattr:urlencode({"xattr-1":"base64(value-1)","xattr-2":"base64(value-2)","xattr-3":"base64(value-3)"})
 //
-typedef struct xattr_value
-{
-    unsigned char* pvalue;
-    size_t         length;
-
-    explicit xattr_value(unsigned char* pval = NULL, size_t len = 0) : pvalue(pval), length(len) {}
-    ~xattr_value()
-    {
-        delete[] pvalue;
-    }
-}XATTRVAL, *PXATTRVAL;
-
-typedef std::map<std::string, PXATTRVAL> xattrs_t;
+typedef std::map<std::string, std::string> xattrs_t;
 
 //-------------------------------------------------------------------
 // acl_t
 //-------------------------------------------------------------------
-class acl_t{
-    public:
-        enum Value{
-            PRIVATE,
-            PUBLIC_READ,
-            PUBLIC_READ_WRITE,
-            AWS_EXEC_READ,
-            AUTHENTICATED_READ,
-            BUCKET_OWNER_READ,
-            BUCKET_OWNER_FULL_CONTROL,
-            LOG_DELIVERY_WRITE,
-            UNKNOWN
-        };
-
-        // cppcheck-suppress noExplicitConstructor
-        acl_t(Value value) : value_(value) {}
-
-        operator Value() const { return value_; }
-
-        const char* str() const
-        {
-            switch(value_){
-                case PRIVATE:
-                    return "private";
-                case PUBLIC_READ:
-                    return "public-read";
-                case PUBLIC_READ_WRITE:
-                    return "public-read-write";
-                case AWS_EXEC_READ:
-                    return "aws-exec-read";
-                case AUTHENTICATED_READ:
-                    return "authenticated-read";
-                case BUCKET_OWNER_READ:
-                    return "bucket-owner-read";
-                case BUCKET_OWNER_FULL_CONTROL:
-                    return "bucket-owner-full-control";
-                case LOG_DELIVERY_WRITE:
-                    return "log-delivery-write";
-                case UNKNOWN:
-                    return NULL;
-            }
-            abort();
-        }
-
-        static acl_t from_str(const char *acl)
-        {
-            if(0 == strcmp(acl, "private")){
-                return PRIVATE;
-            }else if(0 == strcmp(acl, "public-read")){
-                return PUBLIC_READ;
-            }else if(0 == strcmp(acl, "public-read-write")){
-                return PUBLIC_READ_WRITE;
-            }else if(0 == strcmp(acl, "aws-exec-read")){
-                return AWS_EXEC_READ;
-            }else if(0 == strcmp(acl, "authenticated-read")){
-                return AUTHENTICATED_READ;
-            }else if(0 == strcmp(acl, "bucket-owner-read")){
-                return BUCKET_OWNER_READ;
-            }else if(0 == strcmp(acl, "bucket-owner-full-control")){
-                return BUCKET_OWNER_FULL_CONTROL;
-            }else if(0 == strcmp(acl, "log-delivery-write")){
-                return LOG_DELIVERY_WRITE;
-            }else{
-                return UNKNOWN;
-            }
-        }
-
-    private:
-        OPERATOR_EXPLICIT operator bool();
-        Value value_;
+enum class acl_t{
+    PRIVATE,
+    PUBLIC_READ,
+    PUBLIC_READ_WRITE,
+    AWS_EXEC_READ,
+    AUTHENTICATED_READ,
+    BUCKET_OWNER_READ,
+    BUCKET_OWNER_FULL_CONTROL,
+    LOG_DELIVERY_WRITE,
+    UNKNOWN
 };
+
+inline const char* str(acl_t value)
+{
+    switch(value){
+    case acl_t::PRIVATE:
+        return "private";
+    case acl_t::PUBLIC_READ:
+        return "public-read";
+    case acl_t::PUBLIC_READ_WRITE:
+        return "public-read-write";
+    case acl_t::AWS_EXEC_READ:
+        return "aws-exec-read";
+    case acl_t::AUTHENTICATED_READ:
+        return "authenticated-read";
+    case acl_t::BUCKET_OWNER_READ:
+        return "bucket-owner-read";
+    case acl_t::BUCKET_OWNER_FULL_CONTROL:
+        return "bucket-owner-full-control";
+    case acl_t::LOG_DELIVERY_WRITE:
+        return "log-delivery-write";
+    case acl_t::UNKNOWN:
+        return nullptr;
+    }
+    abort();
+}
+
+inline acl_t to_acl(const char *acl)
+{
+    if(0 == strcmp(acl, "private")){
+        return acl_t::PRIVATE;
+    }else if(0 == strcmp(acl, "public-read")){
+        return acl_t::PUBLIC_READ;
+    }else if(0 == strcmp(acl, "public-read-write")){
+        return acl_t::PUBLIC_READ_WRITE;
+    }else if(0 == strcmp(acl, "aws-exec-read")){
+        return acl_t::AWS_EXEC_READ;
+    }else if(0 == strcmp(acl, "authenticated-read")){
+        return acl_t::AUTHENTICATED_READ;
+    }else if(0 == strcmp(acl, "bucket-owner-read")){
+        return acl_t::BUCKET_OWNER_READ;
+    }else if(0 == strcmp(acl, "bucket-owner-full-control")){
+        return acl_t::BUCKET_OWNER_FULL_CONTROL;
+    }else if(0 == strcmp(acl, "log-delivery-write")){
+        return acl_t::LOG_DELIVERY_WRITE;
+    }else{
+        return acl_t::UNKNOWN;
+    }
+}
 
 //-------------------------------------------------------------------
 // sse_type_t
 //-------------------------------------------------------------------
-class sse_type_t{
-    public:
-        enum Value{
-            SSE_DISABLE = 0,      // not use server side encrypting
-            SSE_S3,               // server side encrypting by S3 key
-            SSE_C,                // server side encrypting by custom key
-            SSE_KMS               // server side encrypting by kms id
-        };
-
-        // cppcheck-suppress noExplicitConstructor
-        sse_type_t(Value value) : value_(value) {}
-
-        operator Value() const { return value_; }
-
-    private:
-        //OPERATOR_EXPLICIT operator bool();
-        Value value_;
+enum class sse_type_t{
+    SSE_DISABLE = 0,      // not use server side encrypting
+    SSE_S3,               // server side encrypting by S3 key
+    SSE_C,                // server side encrypting by custom key
+    SSE_KMS               // server side encrypting by kms id
 };
 
-enum signature_type_t {
+enum class signature_type_t {
     V2_ONLY,
     V4_ONLY,
     V2_OR_V4
@@ -182,7 +146,7 @@ struct etagpair
     std::string  etag;        // expected etag value
     int          part_num;    // part number
 
-    explicit etagpair(const char* petag = NULL, int part = -1) : etag(petag ? petag : ""), part_num(part) {}
+    explicit etagpair(const char* petag = nullptr, int part = -1) : etag(petag ? petag : ""), part_num(part) {}
 
     ~etagpair()
     {
@@ -196,11 +160,13 @@ struct etagpair
     }
 };
 
+// Requires pointer stability and thus must be a list not a vector
 typedef std::list<etagpair> etaglist_t;
 
 struct petagpool
 {
-    std::list<etagpair*> petaglist;
+    // Requires pointer stability and thus must be a list not a vector
+    std::list<etagpair> petaglist;
 
     ~petagpool()
     {
@@ -209,19 +175,13 @@ struct petagpool
 
     void clear()
     {
-        for(std::list<etagpair*>::iterator it = petaglist.begin(); petaglist.end() != it; ++it){
-            if(*it){
-                delete (*it);
-            }
-        }
         petaglist.clear();
     }
 
     etagpair* add(const etagpair& etag_entity)
     {
-        etagpair* petag = new etagpair(etag_entity);
-        petaglist.push_back(petag);
-        return petag;
+        petaglist.push_back(etag_entity);
+        return &petaglist.back();
     }
 };
 
@@ -238,7 +198,7 @@ struct filepart
     bool         is_copy;     // whether is copy multipart
     etagpair*    petag;       // use only parallel upload
 
-    explicit filepart(bool is_uploaded = false, int _fd = -1, off_t part_start = 0, off_t part_size = -1, bool is_copy_part = false, etagpair* petagpair = NULL) : uploaded(false), fd(_fd), startpos(part_start), size(part_size), is_copy(is_copy_part), petag(petagpair) {}
+    explicit filepart(bool is_uploaded = false, int _fd = -1, off_t part_start = 0, off_t part_size = -1, bool is_copy_part = false, etagpair* petagpair = nullptr) : uploaded(false), fd(_fd), startpos(part_start), size(part_size), is_copy(is_copy_part), petag(petagpair) {}
 
     ~filepart()
     {
@@ -253,7 +213,7 @@ struct filepart
         startpos = 0;
         size     = -1;
         is_copy  = false;
-        petag    = NULL;
+        petag    = nullptr;
     }
 
     void add_etag_list(etaglist_t& list, int partnum = -1)
@@ -261,7 +221,7 @@ struct filepart
         if(-1 == partnum){
             partnum = static_cast<int>(list.size()) + 1;
         }
-        list.push_back(etagpair(NULL, partnum));
+        list.push_back(etagpair(nullptr, partnum));
         petag = &list.back();
     }
 
@@ -279,7 +239,7 @@ struct filepart
     }
 };
 
-typedef std::list<filepart> filepart_list_t;
+typedef std::vector<filepart> filepart_list_t;
 
 //
 // Each part information for Untreated parts
@@ -337,7 +297,7 @@ struct untreatedpart
     }
 };
 
-typedef std::list<untreatedpart> untreated_list_t;
+typedef std::vector<untreatedpart> untreated_list_t;
 
 //
 // Information on each part of multipart upload
@@ -351,7 +311,7 @@ struct mp_part
     explicit mp_part(off_t set_start = 0, off_t set_size = 0, int part = 0) : start(set_start), size(set_size), part_num(part) {}
 };
 
-typedef std::list<struct mp_part> mp_part_list_t;
+typedef std::vector<struct mp_part> mp_part_list_t;
 
 inline off_t total_mp_part_list(const mp_part_list_t& mplist)
 {
@@ -376,7 +336,7 @@ typedef std::map<std::string, std::string, case_insensitive_compare_func> mimes_
 //-------------------------------------------------------------------
 // Typedefs specialized for use
 //-------------------------------------------------------------------
-typedef std::list<std::string>             readline_t;
+typedef std::vector<std::string>           readline_t;
 typedef std::map<std::string, std::string> kvmap_t;
 typedef std::map<std::string, kvmap_t>     bucketkvmap_t;
 

@@ -22,7 +22,7 @@
 #define S3FS_MPU_UTIL_H_
 
 #include <string>
-#include <list>
+#include <vector>
 
 //-------------------------------------------------------------------
 // Structure / Typedef
@@ -34,12 +34,12 @@ typedef struct incomplete_multipart_upload_info
     std::string date;
 }INCOMP_MPU_INFO;
 
-typedef std::list<INCOMP_MPU_INFO>      incomp_mpu_list_t;
+typedef std::vector<INCOMP_MPU_INFO> incomp_mpu_list_t;
 
 //-------------------------------------------------------------------
 // enum for utility process mode
 //-------------------------------------------------------------------
-enum utility_incomp_type{
+enum class utility_incomp_type{
     NO_UTILITY_MODE = 0,      // not utility mode
     INCOMP_TYPE_LIST,         // list of incomplete mpu
     INCOMP_TYPE_ABORT         // delete incomplete mpu
