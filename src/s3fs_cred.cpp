@@ -1426,6 +1426,20 @@ int S3fsCred::DetectParam(const char* arg)
         return 0;
     }
 
+    if(0 == strcmp(arg, "sts_agent_url=")){
+        const char* sts_agent_url = strchr(arg, '=') + sizeof(char);
+        SetIsIBMIAMAuth(true);
+        SetIAMCredentialsURL(sts_agent_url);
+        S3fsCred::IAMCRED_ACCESSKEYID       = "\"TmpSecretId\"";
+        S3fsCred::IAMCRED_SECRETACCESSKEY   = "\"TmpSecretKey\"";
+        SetIAMTokenField("\"Token\"");
+        SetIAMExpiryField("\"Expiration\"");
+        SetIAMFieldCount(2);
+        SetIAMRole("sts");
+        set_builtin_cred_opts = true;
+        return 0;
+    }
+
     if(0 == strcmp(arg, "use_session_token")){
         SetIsUseSessionToken(true);
         set_builtin_cred_opts = true;
@@ -1508,6 +1522,8 @@ int S3fsCred::DetectParam(const char* arg)
         }
         return 0;
     }
+
+
 
     return 1;
 }
