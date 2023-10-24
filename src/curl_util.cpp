@@ -71,6 +71,7 @@ struct curl_slist* curl_slist_sort_insert(struct curl_slist* list, const char* k
     }
 
     struct curl_slist* new_item;
+    // Must use malloc since curl_slist_free_all calls free.
     if(nullptr == (new_item = static_cast<struct curl_slist*>(malloc(sizeof(*new_item))))){
         free(data);
         return list;
@@ -318,17 +319,9 @@ const char* getCurlDebugHead(curl_infotype type)
 //
 // compare ETag ignoring quotes and case
 //
-bool etag_equals(std::string s1, std::string s2)
+bool etag_equals(const std::string& s1, const std::string& s2)
 {
-    if(s1.length() > 1 && s1[0] == '\"' && *s1.rbegin() == '\"'){
-        s1.erase(s1.size() - 1);
-        s1.erase(0, 1);
-    }
-    if(s2.length() > 1 && s2[0] == '\"' && *s2.rbegin() == '\"'){
-        s2.erase(s2.size() - 1);
-        s2.erase(0, 1);
-    }
-    return 0 == strcasecmp(s1.c_str(), s2.c_str());
+    return 0 == strcasecmp(peeloff(s1).c_str(), peeloff(s2).c_str());
 }
 
 /*

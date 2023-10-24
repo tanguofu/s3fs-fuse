@@ -18,6 +18,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <errno.h>
@@ -39,7 +40,6 @@
 #include "curl_multi.h"
 #include "s3objlist.h"
 #include "cache.h"
-#include "mvnode.h"
 #include "addhead.h"
 #include "sighandlers.h"
 #include "s3fs_xml.h"
@@ -101,7 +101,8 @@ static bool use_wtf8              = false;
 static off_t fake_diskfree_size   = -1; // default is not set(-1)
 static int max_thread_count       = 5;  // default is 5
 static bool update_parent_dir_stat= false;  // default not updating parent directory stats
-static fsblkcnt_t bucket_size;       // advertised size of the bucket
+static fsblkcnt_t bucket_block_count;                       // advertised block count of the bucket
+static unsigned long s3fs_block_size = 16 * 1024 * 1024;    // s3fs block size is 16MB
 
 //-------------------------------------------------------------------
 // Global functions : prototype
@@ -146,6 +147,8 @@ static bool set_mountpoint_attribute(struct stat& mpst);
 static int set_bucket(const char* arg);
 static int my_fuse_opt_proc(void* data, const char* arg, int key, struct fuse_args* outargs);
 static fsblkcnt_t parse_bucket_size(char* value);
+static bool is_cmd_exists(const std::string& command);
+static int print_umount_message(const std::string& mp, bool force);
 
 //-------------------------------------------------------------------
 // fuse interface functions
@@ -1227,9 +1230,10 @@ static int s3fs_create(const char* _path, mode_t mode, struct fuse_file_info* fi
 
     AutoFdEntity autoent;
     FdEntity*    ent;
-    if(nullptr == (ent = autoent.Open(path, &meta, 0, S3FS_OMIT_TS, fi->flags, false, true, false, AutoLock::NONE))){
+    int error = 0;
+    if(nullptr == (ent = autoent.Open(path, &meta, 0, S3FS_OMIT_TS, fi->flags, false, true, false, AutoLock::NONE, &error))){
         StatCache::getStatCacheData()->DelStat(path);
-        return -EIO;
+        return error;
     }
     ent->MarkDirtyNewFile();
     fi->fh = autoent.Detach();       // KEEP fdentity open;
@@ -1734,9 +1738,7 @@ static int rename_directory(const char* from, const char* to)
     std::string nowcache;                      // now cache path(not used)
     dirtype DirType;
     bool normdir; 
-    MVNODE* mn_head = nullptr;
-    MVNODE* mn_tail = nullptr;
-    MVNODE* mn_cur;
+    std::vector<mvnode> mvnodes;
     struct stat stbuf;
     int result;
     bool is_dir;
@@ -1744,7 +1746,7 @@ static int rename_directory(const char* from, const char* to)
     S3FS_PRN_INFO1("[from=%s][to=%s]", from, to);
 
     //
-    // Initiate and Add base directory into MVNODE struct.
+    // Initiate and Add base directory into mvnode struct.
     //
     strto += "/";
     if(0 == chk_dir_object_type(from, newpath, strfrom, nowcache, nullptr, &DirType) && dirtype::UNKNOWN != DirType){
@@ -1754,9 +1756,7 @@ static int rename_directory(const char* from, const char* to)
             normdir = true;
             strfrom = from;               // from directory is not removed, but from directory attr is needed.
         }
-        if(nullptr == (add_mvnode(&mn_head, &mn_tail, strfrom.c_str(), strto.c_str(), true, normdir))){
-            return -ENOMEM;
-        }
+        mvnodes.emplace_back(strfrom, strto, true, normdir);
     }else{
         // Something wrong about "from" directory.
     }
@@ -1804,20 +1804,20 @@ static int rename_directory(const char* from, const char* to)
         }
         
         // push this one onto the stack
-        if(nullptr == add_mvnode(&mn_head, &mn_tail, from_name.c_str(), to_name.c_str(), is_dir, normdir)){
-            return -ENOMEM;
-        }
+        mvnodes.emplace_back(from_name, to_name, is_dir, normdir);
     }
+
+    std::sort(mvnodes.begin(), mvnodes.end(), [](const mvnode& a, const mvnode& b) { return a.old_path < b.old_path; });
 
     //
     // rename
     //
     // rename directory objects.
-    for(mn_cur = mn_head; mn_cur; mn_cur = mn_cur->next){
-        if(mn_cur->is_dir && mn_cur->old_path && '\0' != mn_cur->old_path[0]){
+    for(auto mn_cur = mvnodes.cbegin(); mn_cur != mvnodes.cend(); ++mn_cur){
+        if(mn_cur->is_dir && !mn_cur->old_path.empty()){
             std::string xattrvalue;
             const char* pxattrvalue;
-            if(get_meta_xattr_value(mn_cur->old_path, xattrvalue)){
+            if(get_meta_xattr_value(mn_cur->old_path.c_str(), xattrvalue)){
                 pxattrvalue = xattrvalue.c_str();
             }else{
                 pxattrvalue = nullptr;
@@ -1827,9 +1827,8 @@ static int rename_directory(const char* from, const char* to)
             // The ctime is updated only for the top (from) directory.
             // Other than that, it will not be updated.
             //
-            if(0 != (result = clone_directory_object(mn_cur->old_path, mn_cur->new_path, (strfrom == mn_cur->old_path), pxattrvalue))){
+            if(0 != (result = clone_directory_object(mn_cur->old_path.c_str(), mn_cur->new_path.c_str(), (strfrom == mn_cur->old_path), pxattrvalue))){
                 S3FS_PRN_ERR("clone_directory_object returned an error(%d)", result);
-                free_mvnodes(mn_head);
                 return result;
             }
         }
@@ -1837,28 +1836,26 @@ static int rename_directory(const char* from, const char* to)
 
     // iterate over the list - copy the files with rename_object
     // does a safe copy - copies first and then deletes old
-    for(mn_cur = mn_head; mn_cur; mn_cur = mn_cur->next){
+    for(auto mn_cur = mvnodes.begin(); mn_cur != mvnodes.end(); ++mn_cur){
         if(!mn_cur->is_dir){
             if(!nocopyapi && !norenameapi){
-                result = rename_object(mn_cur->old_path, mn_cur->new_path, false);          // keep ctime
+                result = rename_object(mn_cur->old_path.c_str(), mn_cur->new_path.c_str(), false);          // keep ctime
             }else{
-                result = rename_object_nocopy(mn_cur->old_path, mn_cur->new_path, false);   // keep ctime
+                result = rename_object_nocopy(mn_cur->old_path.c_str(), mn_cur->new_path.c_str(), false);   // keep ctime
             }
             if(0 != result){
                 S3FS_PRN_ERR("rename_object returned an error(%d)", result);
-                free_mvnodes(mn_head);
                 return result;
             }
         }
     }
 
     // Iterate over old the directories, bottoms up and remove
-    for(mn_cur = mn_tail; mn_cur; mn_cur = mn_cur->prev){
-        if(mn_cur->is_dir && mn_cur->old_path && '\0' != mn_cur->old_path[0]){
+    for(auto mn_cur = mvnodes.rbegin(); mn_cur != mvnodes.rend(); ++mn_cur){
+        if(mn_cur->is_dir && !mn_cur->old_path.empty()){
             if(!(mn_cur->is_normdir)){
-                if(0 != (result = s3fs_rmdir(mn_cur->old_path))){
+                if(0 != (result = s3fs_rmdir(mn_cur->old_path.c_str()))){
                     S3FS_PRN_ERR("s3fs_rmdir returned an error(%d)", result);
-                    free_mvnodes(mn_head);
                     return result;
                 }
             }else{
@@ -1867,7 +1864,6 @@ static int rename_directory(const char* from, const char* to)
             }
         }
     }
-    free_mvnodes(mn_head);
 
     return 0;
 }
@@ -2967,20 +2963,24 @@ static int s3fs_write(const char* _path, const char* buf, size_t size, off_t off
 static int s3fs_statfs(const char* _path, struct statvfs* stbuf)
 {
     // WTF8_ENCODE(path)
-    stbuf->f_bsize  = 16 * 1024 * 1024;
+    stbuf->f_bsize   = s3fs_block_size;
     stbuf->f_namemax = NAME_MAX;
+
 #if defined(__MSYS__)
     // WinFsp resolves the free space from f_bfree * f_frsize, and the total space from f_blocks * f_frsize (in bytes).
+    stbuf->f_blocks = bucket_block_count;
     stbuf->f_frsize = stbuf->f_bsize;
-    stbuf->f_blocks = bucket_size;
-    stbuf->f_bfree = stbuf->f_blocks;
+    stbuf->f_bfree  = stbuf->f_blocks;
 #elif defined(__APPLE__)
-    stbuf->f_blocks = bucket_size;
+    stbuf->f_blocks = bucket_block_count;
+    stbuf->f_frsize = stbuf->f_bsize;
     stbuf->f_bfree  = stbuf->f_blocks;
     stbuf->f_files  = UINT32_MAX;
     stbuf->f_ffree  = UINT32_MAX;
+    stbuf->f_favail = UINT32_MAX;
 #else
-    stbuf->f_blocks = bucket_size / stbuf->f_bsize;
+    stbuf->f_frsize = stbuf->f_bsize;
+    stbuf->f_blocks = bucket_block_count;
     stbuf->f_bfree  = stbuf->f_blocks;
 #endif
     stbuf->f_bavail = stbuf->f_blocks;
@@ -3511,13 +3511,11 @@ static int list_bucket(const char* path, S3ObjList& head, const char* delimiter,
             return -EIO;
         }
         if(true == (truncated = is_truncated(doc))){
-            xmlChar* tmpch;
-            if(nullptr != (tmpch = get_next_continuation_token(doc))){
-                next_continuation_token = reinterpret_cast<char*>(tmpch);
-                xmlFree(tmpch);
+            auto tmpch = get_next_continuation_token(doc);
+            if(nullptr != tmpch){
+                next_continuation_token = reinterpret_cast<const char*>(tmpch.get());
             }else if(nullptr != (tmpch = get_next_marker(doc))){
-                next_marker = reinterpret_cast<char*>(tmpch);
-                xmlFree(tmpch);
+                next_marker = reinterpret_cast<const char*>(tmpch.get());
             }
 
             if(next_continuation_token.empty() && next_marker.empty()){
@@ -4575,67 +4573,127 @@ static int set_bucket(const char* arg)
     return 0;
 }
 
-// parse --bucket_size option
-// max_size: a string like 20000000, 30GiB, 20TB etc
-// return: the integer of type fsblkcnt_t corresponding to max_size,
-//         or 0 when errors
+//
+// Utility function for parse "--bucket_size" option
+//
+// max_size: A string like 20000000, 30GiB, 20TB etc
+// return:   An integer of type fsblkcnt_t corresponding to the number
+//           of blocks with max_size calculated with the s3fs block size,
+//           or 0 on error
+//
 static fsblkcnt_t parse_bucket_size(char* max_size)
 {
+    const unsigned long long ten00   = 1000L;
+    const unsigned long long ten24   = 1024L;
+    unsigned long long       scale   = 1;
+    unsigned long long       n_bytes = 0;
     char *ptr;
-    fsblkcnt_t scale=1;
-    fsblkcnt_t n_bytes=0;
-    fsblkcnt_t ten00=static_cast<fsblkcnt_t>(1000L);
-    fsblkcnt_t ten24=static_cast<fsblkcnt_t>(1024L);
 
-    if ((ptr=strstr(max_size,"GB"))!=nullptr) {
-        scale=ten00*ten00*ten00;
-        if(strlen(ptr)>2)return 0; // no trailing garbage
-        *ptr='\0';
+    if(nullptr != (ptr = strstr(max_size, "GB"))){
+        scale = ten00 * ten00 * ten00;
+        if(2 < strlen(ptr)){
+            return 0;   // no trailing garbage
         }
-    else if ((ptr=strstr(max_size,"GiB"))!=nullptr) {
-        scale=ten24*ten24*ten24;
-        if(strlen(ptr)>3)return 0; // no trailing garbage
-        *ptr='\0';
+        *ptr = '\0';
+    }else if(nullptr != (ptr = strstr(max_size, "GiB"))){
+        scale = ten24 * ten24 * ten24;
+        if(3 < strlen(ptr)){
+            return 0;   // no trailing garbage
         }
-    else if ((ptr=strstr(max_size,"TB"))!=nullptr) {
-        scale=ten00*ten00*ten00*ten00;
-        if(strlen(ptr)>2)return 0; // no trailing garbage
-        *ptr='\0';
+        *ptr = '\0';
+    }else if(nullptr != (ptr = strstr(max_size, "TB"))){
+        scale = ten00 * ten00 * ten00 * ten00;
+        if(2 < strlen(ptr)){
+            return 0;   // no trailing garbage
         }
-    else if ((ptr=strstr(max_size,"TiB"))!=nullptr) {
-        scale=ten24*ten24*ten24*ten24;
-        if(strlen(ptr)>3)return 0; // no trailing garbage
-        *ptr='\0';
+        *ptr = '\0';
+    }else if(nullptr != (ptr = strstr(max_size, "TiB"))){
+        scale = ten24 * ten24 * ten24 * ten24;
+        if(3 < strlen(ptr)){
+            return 0;   // no trailing garbage
         }
-    else if ((ptr=strstr(max_size,"PB"))!=nullptr) {
-        scale=ten00*ten00*ten00*ten00*ten00;
-        if(strlen(ptr)>2)return 0; // no trailing garbage
-        *ptr='\0';
+        *ptr = '\0';
+    }else if(nullptr != (ptr = strstr(max_size, "PB"))){
+        scale = ten00 * ten00 * ten00 * ten00 * ten00;
+        if(2 < strlen(ptr)){
+            return 0;   // no trailing garbage
         }
-    else if ((ptr=strstr(max_size,"PiB"))!=nullptr) {
-        scale=ten24*ten24*ten24*ten24*ten24;
-        if(strlen(ptr)>3)return 0; // no trailing garbage
-        *ptr='\0';
+        *ptr = '\0';
+    }else if(nullptr != (ptr = strstr(max_size, "PiB"))){
+        scale = ten24 * ten24 * ten24 * ten24 * ten24;
+        if(3 < strlen(ptr)){
+            return 0;   // no trailing garbage
         }
-    else if ((ptr=strstr(max_size,"EB"))!=nullptr) {
-        scale=ten00*ten00*ten00*ten00*ten00*ten00;
-        if(strlen(ptr)>2)return 0; // no trailing garbage
-        *ptr='\0';
+        *ptr = '\0';
+    }else if(nullptr != (ptr = strstr(max_size, "EB"))){
+        scale = ten00 * ten00 * ten00 * ten00 * ten00 * ten00;
+        if(2 < strlen(ptr)){
+            return 0;   // no trailing garbage
         }
-    else if ((ptr=strstr(max_size,"EiB"))!=nullptr) {
-        scale=ten24*ten24*ten24*ten24*ten24*ten24;
-        if(strlen(ptr)>3)return 0; // no trailing garbage
-        *ptr='\0';
+        *ptr = '\0';
+    }else if(nullptr != (ptr = strstr(max_size, "EiB"))){
+        scale = ten24 * ten24 * ten24 * ten24 * ten24 * ten24;
+        if(3 < strlen(ptr)){
+            return 0;   // no trailing garbage
         }
+        *ptr = '\0';
+    }
+
     // extra check
-    for(ptr=max_size;*ptr!='\0';++ptr) if( ! isdigit(*ptr) ) return 0;
-    n_bytes=static_cast<fsblkcnt_t>(strtoul(max_size,nullptr,10));
-    n_bytes*=scale;
-    if(n_bytes<=0)return 0;
-            
-    return n_bytes;
+    for(ptr = max_size; *ptr != '\0'; ++ptr){
+        if(!isdigit(*ptr)){
+            return 0;   // wrong number
+        }
+        n_bytes = static_cast<unsigned long long>(strtoull(max_size, nullptr, 10));
+        if((INT64_MAX / scale) < n_bytes){
+            return 0;   // overflow
+        }
+        n_bytes *= scale;
+    }
+
+    // [NOTE]
+    // To round a number by s3fs block size.
+    // And need to check the result value because fsblkcnt_t is 32bit in macos etc.
+    //
+    n_bytes /= s3fs_block_size;
+
+    if(sizeof(fsblkcnt_t) <= 4){
+        if(INT32_MAX < n_bytes){
+            return 0;   // overflow
+        }
+    }
+    return static_cast<fsblkcnt_t>(n_bytes);    // cast to fsblkcnt_t
 }
 
+static bool is_cmd_exists(const std::string& command)
+{
+    // The `command -v` is a POSIX-compliant method for checking the existence of a program.
+    std::string cmd = "command -v " + command + " >/dev/null 2>&1";
+    int result = system(cmd.c_str());
+    return (result !=-1 && WIFEXITED(result) && WEXITSTATUS(result) == 0);
+}
+
+static int print_umount_message(const std::string& mp, bool force)
+{
+    std::string cmd;
+    if (is_cmd_exists("fusermount")){
+        if (force){
+            cmd = "fusermount -uz " + mp;
+        } else {
+            cmd = "fusermount -u " + mp;
+        }
+    }else{
+        if (force){
+            cmd = "umount -l " + mp;
+        } else {
+            cmd = "umount " + mp;
+        }
+    }
+
+    S3FS_PRN_EXIT("MOUNTPOINT %s is stale, you could use this command to fix: %s", mp.c_str(), cmd.c_str());
+
+    return 0;
+}
 
 // This is repeatedly called by the fuse option parser
 // if the key is equal to FUSE_OPT_KEY_OPT, it's an option passed in prefixed by 
@@ -4671,7 +4729,12 @@ static int my_fuse_opt_proc(void* data, const char* arg, int key, struct fuse_ar
             set_mountpoint_attribute(stbuf);
 #else
             if(stat(arg, &stbuf) == -1){
-                S3FS_PRN_EXIT("unable to access MOUNTPOINT %s: %s", mountpoint.c_str(), strerror(errno));
+                // check stale mountpoint
+                if(errno == ENOTCONN){
+                    print_umount_message(mountpoint, true);
+                } else {
+                    S3FS_PRN_EXIT("unable to access MOUNTPOINT %s: %s", mountpoint.c_str(), strerror(errno));
+                }
                 return -1;
             }
             if(!(S_ISDIR(stbuf.st_mode))){
@@ -4731,8 +4794,8 @@ static int my_fuse_opt_proc(void* data, const char* arg, int key, struct fuse_ar
             return 1; // continue for fuse option
         }
         else if(is_prefix(arg, "bucket_size=")){
-            bucket_size = parse_bucket_size(const_cast<char *>(strchr(arg, '=')) + sizeof(char));
-            if(0 == bucket_size){
+            bucket_block_count = parse_bucket_size(const_cast<char *>(strchr(arg, '=')) + sizeof(char));
+            if(0 == bucket_block_count){
                 S3FS_PRN_EXIT("invalid bucket_size option.");
                 return -1;
             }
@@ -5081,8 +5144,38 @@ static int my_fuse_opt_proc(void* data, const char* arg, int key, struct fuse_ar
             max_dirty_data = size;
             return 0;
         }
+        if(is_prefix(arg, "free_space_ratio=")){
+            int ratio = static_cast<int>(cvt_strtoofft(strchr(arg, '=') + sizeof(char), /*base=*/ 10));
+
+            if(FdManager::GetEnsureFreeDiskSpace()!=0){
+                S3FS_PRN_EXIT("option free_space_ratio conflicts with ensure_diskfree, please set only one of them.");
+                return -1;
+            }
+
+            if(ratio < 0 || ratio > 100){
+                S3FS_PRN_EXIT("option free_space_ratio must between 0 to 100, which is: %d", ratio);
+                return -1;
+            }
+
+            off_t dfsize = FdManager::GetTotalDiskSpaceByRatio(ratio);
+            S3FS_PRN_INFO("Free space ratio set to %d %%, ensure the available disk space is greater than %.3f MB", ratio, static_cast<double>(dfsize) / 1024 / 1024);
+
+            if(dfsize < S3fsCurl::GetMultipartSize()){
+                S3FS_PRN_WARN("specified size to ensure disk free space is smaller than multipart size, so set multipart size to it.");
+                dfsize = S3fsCurl::GetMultipartSize();
+            }
+            FdManager::SetEnsureFreeDiskSpace(dfsize);
+            return 0;
+        }
         else if(is_prefix(arg, "ensure_diskfree=")){
             off_t dfsize = cvt_strtoofft(strchr(arg, '=') + sizeof(char), /*base=*/ 10) * 1024 * 1024;
+
+            if(FdManager::GetEnsureFreeDiskSpace()!=0){
+                S3FS_PRN_EXIT("option free_space_ratio conflicts with ensure_diskfree, please set only one of them.");
+                return -1;
+            }
+
+            S3FS_PRN_INFO("Set and ensure the available disk space is greater than %.3f MB.", static_cast<double>(dfsize) / 1024 / 1024);
             if(dfsize < S3fsCurl::GetMultipartSize()){
                 S3FS_PRN_WARN("specified size to ensure disk free space is smaller than multipart size, so set multipart size to it.");
                 dfsize = S3fsCurl::GetMultipartSize();
@@ -5405,15 +5498,14 @@ int main(int argc, char* argv[])
         {nullptr, 0, nullptr, 0}
     };
 
-// init bucket_size
+    // init bucket_block_size
 #if defined(__MSYS__)
-    bucket_size=static_cast<fsblkcnt_t>(INT32_MAX);
+    bucket_block_count = static_cast<fsblkcnt_t>(INT32_MAX);
 #elif defined(__APPLE__)
-    bucket_size=static_cast<fsblkcnt_t>(INT32_MAX);
+    bucket_block_count = static_cast<fsblkcnt_t>(INT32_MAX);
 #else
-    bucket_size=~0U;
+    bucket_block_count = ~0U;
 #endif
-
 
     // init xml2
     xmlInitParser();
@@ -5640,6 +5732,19 @@ int main(int argc, char* argv[])
         FdManager::InitFakeUsedDiskSize(fake_diskfree_size);
     }
 
+    // Set default value of free_space_ratio to 10%
+    if(FdManager::GetEnsureFreeDiskSpace()==0){
+        int ratio = 10;
+        off_t dfsize = FdManager::GetTotalDiskSpaceByRatio(ratio);
+        S3FS_PRN_INFO("Free space ratio default to %d %%, ensure the available disk space is greater than %.3f MB", ratio, static_cast<double>(dfsize) / 1024 / 1024);
+
+        if(dfsize < S3fsCurl::GetMultipartSize()){
+            S3FS_PRN_WARN("specified size to ensure disk free space is smaller than multipart size, so set multipart size to it.");
+            dfsize = S3fsCurl::GetMultipartSize();
+        }
+        FdManager::SetEnsureFreeDiskSpace(dfsize);
+    }
+
     // set user agent
     S3fsCurl::InitUserAgent();
 
@@ -5690,12 +5795,17 @@ int main(int argc, char* argv[])
 
     // check free disk space
     if(!FdManager::IsSafeDiskSpace(nullptr, S3fsCurl::GetMultipartSize() * S3fsCurl::GetMaxParallelCount())){
-        S3FS_PRN_EXIT("There is no enough disk space for used as cache(or temporary) directory by s3fs.");
-        S3fsCurl::DestroyS3fsCurl();
-        s3fs_destroy_global_ssl();
-        destroy_parser_xml_lock();
-        destroy_basename_lock();
-        exit(EXIT_FAILURE);
+        // clean cache dir and retry
+        S3FS_PRN_WARN("No enough disk space for s3fs, try to clean cache dir");
+        FdManager::get()->CleanupCacheDir();
+
+        if(!FdManager::IsSafeDiskSpaceWithLog(nullptr, S3fsCurl::GetMultipartSize() * S3fsCurl::GetMaxParallelCount())){
+            S3fsCurl::DestroyS3fsCurl();
+            s3fs_destroy_global_ssl();
+            destroy_parser_xml_lock();
+            destroy_basename_lock();
+            exit(EXIT_FAILURE);
+        }
     }
 
     // set mp stat flag object

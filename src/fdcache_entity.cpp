@@ -544,12 +544,13 @@ int FdEntity::Open(const headers_t* pmeta, off_t size, const struct timespec& ts
                     S3FS_PRN_ERR("failed to open file(%s). errno(%d)", cachepath.c_str(), errno);
 
                     // remove cache stat file if it is existed
-                    if(!CacheFileStat::DeleteCacheFileStat(path.c_str())){
-                        if(ENOENT != errno){
-                            S3FS_PRN_WARN("failed to delete current cache stat file(%s) by errno(%d), but continue...", path.c_str(), errno);
+                    int result;
+                    if(0 != (result = CacheFileStat::DeleteCacheFileStat(path.c_str()))){
+                        if(-ENOENT != result){
+                            S3FS_PRN_WARN("failed to delete current cache stat file(%s) by errno(%d), but continue...", path.c_str(), result);
                         }
                     }
-                    return (0 == errno ? -EIO : -errno);
+                    return result;
                 }
                 need_save_csf = true;       // need to update page info
                 inode         = FdEntity::GetInode(physical_fd);
@@ -774,7 +775,8 @@ bool FdEntity::RenamePath(const std::string& newpath, std::string& fentmapkey)
 
 bool FdEntity::IsModified() const
 {
-    AutoLock auto_data_lock(&fdent_data_lock);
+    AutoLock auto_lock(&fdent_lock);
+    AutoLock auto_data_lock2(&fdent_data_lock);
     return pagelist.IsModified();
 }
 
@@ -1155,13 +1157,10 @@ int FdEntity::NoCacheLoadAndPost(PseudoFdInfo* pseudo_obj, off_t start, off_t si
     FdManager::get()->ChangeEntityToTempPath(this, path.c_str());
 
     // open temporary file
-    FILE* ptmpfp;
-    int   tmpfd;
-    if(nullptr == (ptmpfp = FdManager::MakeTempFile()) || -1 ==(tmpfd = fileno(ptmpfp))){
+    int tmpfd;
+    std::unique_ptr<FILE, decltype(&s3fs_fclose)> ptmpfp(FdManager::MakeTempFile(), &s3fs_fclose);
+    if(nullptr == ptmpfp || -1 == (tmpfd = fileno(ptmpfp.get()))){
         S3FS_PRN_ERR("failed to open temporary file by errno(%d)", errno);
-        if(ptmpfp){
-            fclose(ptmpfp);
-        }
         return (0 == errno ? -EIO : -errno);
     }
 
@@ -1283,9 +1282,6 @@ int FdEntity::NoCacheLoadAndPost(PseudoFdInfo* pseudo_obj, off_t start, off_t si
         }
     }
 
-    // close temporary
-    fclose(ptmpfp);
-
     return result;
 }
 
@@ -1367,11 +1363,17 @@ int FdEntity::NoCacheCompleteMultipartPost(PseudoFdInfo* pseudo_obj)
     }
 
     S3fsCurl s3fscurl(true);
-    int      result;
-    if(0 != (result = s3fscurl.CompleteMultipartPostRequest(path.c_str(), upload_id, etaglist))){
+    int      result = s3fscurl.CompleteMultipartPostRequest(path.c_str(), upload_id, etaglist);
+    s3fscurl.DestroyCurlHandle();
+    if(0 != result){
+        S3fsCurl s3fscurl_abort(true);
+        int result2 = s3fscurl.AbortMultipartUpload(path.c_str(), upload_id);
+        s3fscurl_abort.DestroyCurlHandle();
+        if(0 != result2){
+            S3FS_PRN_ERR("failed to abort multipart upload by errno(%d)", result2);
+        }
         return result;
     }
-    s3fscurl.DestroyCurlHandle();
 
     // clear multipart upload info
     untreated_list.ClearAll();
@@ -1382,7 +1384,8 @@ int FdEntity::NoCacheCompleteMultipartPost(PseudoFdInfo* pseudo_obj)
 
 off_t FdEntity::BytesModified()
 {
-    AutoLock auto_lock(&fdent_data_lock);
+    AutoLock auto_lock(&fdent_lock);
+    AutoLock auto_lock2(&fdent_data_lock);
     return pagelist.BytesModified();
 }
 
@@ -1768,7 +1771,7 @@ int FdEntity::RowFlushStreamMultipart(PseudoFdInfo* pseudo_obj, const char* tpat
     if(-1 == physical_fd || !pseudo_obj){
         return -EBADF;
     }
-    int result;
+    int result = 0;
 
     if(pagelist.Size() <= S3fsCurl::GetMultipartSize()){
         //
@@ -1913,13 +1916,21 @@ int FdEntity::RowFlushStreamMultipart(PseudoFdInfo* pseudo_obj, const char* tpat
             return -EIO;
         }else{
             S3fsCurl s3fscurl(true);
-            if(0 != (result = s3fscurl.CompleteMultipartPostRequest(path.c_str(), upload_id, etaglist))){
+            result = s3fscurl.CompleteMultipartPostRequest(path.c_str(), upload_id, etaglist);
+            s3fscurl.DestroyCurlHandle();
+            if(0 != result){
                 S3FS_PRN_ERR("failed to complete multipart upload by errno(%d)", result);
                 untreated_list.ClearAll();
                 pseudo_obj->ClearUploadInfo(); // clear multipart upload info
+
+                S3fsCurl s3fscurl_abort(true);
+                int result2 = s3fscurl.AbortMultipartUpload(path.c_str(), upload_id);
+                s3fscurl_abort.DestroyCurlHandle();
+                if(0 != result2){
+                    S3FS_PRN_ERR("failed to abort multipart upload by errno(%d)", result2);
+                }
                 return result;
             }
-            s3fscurl.DestroyCurlHandle();
         }
         untreated_list.ClearAll();
         pseudo_obj->ClearUploadInfo();         // clear multipart upload info
@@ -2398,6 +2409,7 @@ bool FdEntity::MergeOrgMeta(headers_t& updatemeta)
         SetAtime(atime, AutoLock::ALREADY_LOCKED);
     }
 
+    AutoLock auto_lock2(&fdent_data_lock);
     if(pending_status_t::NO_UPDATE_PENDING == pending_status && (IsUploading(AutoLock::ALREADY_LOCKED) || pagelist.IsModified())){
         pending_status = pending_status_t::UPDATE_META_PENDING;
     }
@@ -2483,7 +2495,8 @@ bool FdEntity::PunchHole(off_t start, size_t size)
 {
     S3FS_PRN_DBG("[path=%s][physical_fd=%d][offset=%lld][size=%zu]", path.c_str(), physical_fd, static_cast<long long int>(start), size);
 
-    AutoLock auto_lock(&fdent_data_lock);
+    AutoLock auto_lock(&fdent_lock);
+    AutoLock auto_lock2(&fdent_data_lock);
 
     if(-1 == physical_fd){
         return false;
@@ -2526,6 +2539,7 @@ bool FdEntity::PunchHole(off_t start, size_t size)
 void FdEntity::MarkDirtyNewFile()
 {
     AutoLock auto_lock(&fdent_lock);
+    AutoLock auto_lock2(&fdent_data_lock);
 
     pagelist.Init(0, false, true);
     pending_status = pending_status_t::CREATE_FILE_PENDING;

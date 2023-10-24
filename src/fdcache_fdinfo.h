@@ -70,8 +70,8 @@ class PseudoFdInfo
         bool                    is_lock_init;
         mutable pthread_mutex_t upload_list_lock;   // protects upload_id and upload_list
         Semaphore               uploaded_sem;       // use a semaphore to trigger an upload completion like event flag
-        volatile int            instruct_count;     // number of instructions for processing by threads
-        volatile int            completed_count;    // number of completed processes by thread
+        int                     instruct_count;     // number of instructions for processing by threads
+        int                     completed_count;    // number of completed processes by thread
         int                     last_result;        // the result of thread processing
 
     private:
@@ -92,6 +92,10 @@ class PseudoFdInfo
     public:
         explicit PseudoFdInfo(int fd = -1, int open_flags = 0);
         ~PseudoFdInfo();
+        PseudoFdInfo(const PseudoFdInfo&) = delete;
+        PseudoFdInfo(PseudoFdInfo&&) = delete;
+        PseudoFdInfo& operator=(const PseudoFdInfo&) = delete;
+        PseudoFdInfo& operator=(PseudoFdInfo&&) = delete;
 
         int GetPhysicalFd() const { return physical_fd; }
         int GetPseudoFd() const { return pseudo_fd; }
@@ -109,7 +113,7 @@ class PseudoFdInfo
 
         bool AppendUploadPart(off_t start, off_t size, bool is_copy = false, etagpair** ppetag = nullptr);
 
-        bool ParallelMultipartUploadAll(const char* path, const mp_part_list_t& upload_list, const mp_part_list_t& copy_list, int& result);
+        bool ParallelMultipartUploadAll(const char* path, const mp_part_list_t& to_upload_list, const mp_part_list_t& copy_list, int& result);
 
         ssize_t UploadBoundaryLastUntreatedArea(const char* path, headers_t& meta, FdEntity* pfdent);
         bool ExtractUploadPartsFromAllArea(UntreatedParts& untreated_list, mp_part_list_t& to_upload_list, mp_part_list_t& to_copy_list, mp_part_list_t& to_download_list, filepart_list_t& cancel_upload_list, off_t max_mp_size, off_t file_size, bool use_copy);

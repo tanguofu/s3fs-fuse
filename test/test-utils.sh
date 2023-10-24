@@ -71,6 +71,16 @@ else
 fi
 export SED_BUFFER_FLAG="--unbuffered"
 
+# [NOTE]
+# Specifying cache disable option depending on stat(coreutils) version
+# TODO: investigate why this is necessary #2327
+#
+if stat --cached=never / >/dev/null 2>&1; then
+    STAT_BIN=(stat --cache=never)
+else
+    STAT_BIN=(stat)
+fi
+
 function get_xattr() {
     if [ "$(uname)" = "Darwin" ]; then
         xattr -p "$1" "$2"
@@ -95,11 +105,19 @@ function del_xattr() {
     fi
 }
 
+function get_inode() {
+    if [ "$(uname)" = "Darwin" ]; then
+        "${STAT_BIN[@]}" -f "%i" "$1"
+    else
+        "${STAT_BIN[@]}" --format "%i" "$1"
+    fi
+}
+
 function get_size() {
     if [ "$(uname)" = "Darwin" ]; then
-        stat -f "%z" "$1"
+        "${STAT_BIN[@]}" -f "%z" "$1"
     else
-        stat -c %s "$1"
+        "${STAT_BIN[@]}" --format "%s" "$1"
     fi
 }
 
@@ -281,35 +299,43 @@ function run_suite {
 function get_ctime() {
     # ex: "1657504903.019784214"
     if [ "$(uname)" = "Darwin" ]; then
-        stat -f "%Fc" "$1"
+        "${STAT_BIN[@]}" -f "%Fc" "$1"
     else
-        stat -c "%.9Z" "$1"
+        "${STAT_BIN[@]}" --format "%.9Z" "$1"
     fi
 }
 
 function get_mtime() {
     # ex: "1657504903.019784214"
     if [ "$(uname)" = "Darwin" ]; then
-        stat -f "%Fm" "$1"
+        "${STAT_BIN[@]}" -f "%Fm" "$1"
     else
-        stat -c "%.9Y" "$1"
+        "${STAT_BIN[@]}" --format "%.9Y" "$1"
     fi
 }
 
 function get_atime() {
     # ex: "1657504903.019784214"
     if [ "$(uname)" = "Darwin" ]; then
-        stat -f "%Fa" "$1"
+        "${STAT_BIN[@]}" -f "%Fa" "$1"
     else
-        stat -c "%0.9X" "$1"
+        "${STAT_BIN[@]}" --format "%.9X" "$1"
     fi
 }
 
 function get_permissions() {
     if [ "$(uname)" = "Darwin" ]; then
-        stat -f "%p" "$1"
+        "${STAT_BIN[@]}" -f "%p" "$1"
     else
-        stat -c "%a" "$1"
+        "${STAT_BIN[@]}" --format "%a" "$1"
+    fi
+}
+
+function get_user_and_group() {
+    if [ "$(uname)" = "Darwin" ]; then
+        stat -f "%u:%g" "$1"
+    else
+        "${STAT_BIN[@]}" --format "%u:%g" "$1"
     fi
 }
 
@@ -336,13 +362,11 @@ function aws_cli() {
     fi
 
     if [ "$1" = "s3" ] && [ "$2" != "ls" ] && [ "$2" != "mb" ]; then
-        # shellcheck disable=SC2009
-        if ps u -p "${S3FS_PID}" | grep -q use_sse=custom; then
+        if s3fs_args | grep -q use_sse=custom; then
             FLAGS="${FLAGS} --sse-c AES256 --sse-c-key fileb:///tmp/ssekey.bin"
         fi
     elif [ "$1" = "s3api" ] && [ "$2" != "head-bucket" ]; then
-        # shellcheck disable=SC2009
-        if ps u -p "${S3FS_PID}" | grep -q use_sse=custom; then
+        if s3fs_args | grep -q use_sse=custom; then
             FLAGS="${FLAGS} --sse-customer-algorithm AES256 --sse-customer-key $(cat /tmp/ssekey) --sse-customer-key-md5 $(cat /tmp/ssekeymd5)"
         fi
     fi
@@ -376,6 +400,10 @@ function make_random_string() {
     "${BASE64_BIN}" --wrap=0 < /dev/urandom | tr -d /+ | head -c "${END_POS}"
 
     return 0
+}
+
+function s3fs_args() {
+    ps -o args -p "${S3FS_PID}" --no-headers
 }
 
 #

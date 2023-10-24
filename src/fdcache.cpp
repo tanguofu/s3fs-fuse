@@ -155,18 +155,13 @@ int FdManager::DeleteCacheFile(const char* path)
         }else{
             S3FS_PRN_ERR("failed to delete file(%s): errno=%d", path, errno);
         }
-        result = -errno;
+        return -errno;
     }
-    if(!CacheFileStat::DeleteCacheFileStat(path)){
-        if(ENOENT == errno){
-            S3FS_PRN_DBG("failed to delete stat file(%s): errno=%d", path, errno);
+    if(0 != (result = CacheFileStat::DeleteCacheFileStat(path))){
+        if(-ENOENT == result){
+            S3FS_PRN_DBG("failed to delete stat file(%s): errno=%d", path, result);
         }else{
-            S3FS_PRN_ERR("failed to delete stat file(%s): errno=%d", path, errno);
-        }
-        if(0 != errno){
-            result = -errno;
-        }else{
-            result = -EIO;
+            S3FS_PRN_ERR("failed to delete stat file(%s): errno=%d", path, result);
         }
     }
     return result;
@@ -271,9 +266,38 @@ bool FdManager::InitFakeUsedDiskSize(off_t fake_freesize)
     return true;
 }
 
+off_t FdManager::GetTotalDiskSpaceByRatio(int ratio)
+{
+    return FdManager::GetTotalDiskSpace(nullptr) * ratio / 100;
+}
+
+off_t FdManager::GetTotalDiskSpace(const char* path)
+{
+    struct statvfs vfsbuf;
+    int result = FdManager::GetVfsStat(path, &vfsbuf);
+    if(result == -1){
+        return 0;
+    }
+
+    off_t actual_totalsize = vfsbuf.f_blocks * vfsbuf.f_frsize;
+
+    return actual_totalsize;
+}
+
 off_t FdManager::GetFreeDiskSpace(const char* path)
 {
     struct statvfs vfsbuf;
+    int result = FdManager::GetVfsStat(path, &vfsbuf);
+    if(result == -1){
+        return 0;
+    }
+
+    off_t actual_freesize = vfsbuf.f_bavail * vfsbuf.f_frsize;
+
+    return (FdManager::fake_used_disk_space < actual_freesize ? (actual_freesize - FdManager::fake_used_disk_space) : 0);
+}
+
+int FdManager::GetVfsStat(const char* path, struct statvfs* vfsbuf){
     std::string ctoppath;
     if(!FdManager::cache_dir.empty()){
         ctoppath = FdManager::cache_dir + "/";
@@ -289,20 +313,30 @@ off_t FdManager::GetFreeDiskSpace(const char* path)
     }else{
         ctoppath += ".";
     }
-    if(-1 == statvfs(ctoppath.c_str(), &vfsbuf)){
+    if(-1 == statvfs(ctoppath.c_str(), vfsbuf)){
         S3FS_PRN_ERR("could not get vfs stat by errno(%d)", errno);
-        return 0;
+        return -1;
     }
 
-    off_t actual_freesize = vfsbuf.f_bavail * vfsbuf.f_frsize;
-
-    return (FdManager::fake_used_disk_space < actual_freesize ? (actual_freesize - FdManager::fake_used_disk_space) : 0);
+    return 0;
 }
 
 bool FdManager::IsSafeDiskSpace(const char* path, off_t size)
 {
     off_t fsize = FdManager::GetFreeDiskSpace(path);
     return size + FdManager::GetEnsureFreeDiskSpace() <= fsize;
+}
+
+bool FdManager::IsSafeDiskSpaceWithLog(const char* path, off_t size)
+{
+    off_t fsize = FdManager::GetFreeDiskSpace(path);
+    off_t needsize = size + FdManager::GetEnsureFreeDiskSpace();
+    if(needsize <= fsize){
+        return true;
+    } else {
+        S3FS_PRN_EXIT("There is no enough disk space for used as cache(or temporary) directory by s3fs. Requires %.3f MB, already has %.3f MB.", static_cast<double>(needsize) / 1024 / 1024, static_cast<double>(fsize) / 1024 / 1024);
+        return false;
+    }
 }
 
 bool FdManager::HaveLseekHole()
@@ -312,13 +346,10 @@ bool FdManager::HaveLseekHole()
     }
 
     // create temporary file
-    FILE* ptmpfp;
-    int   fd;
-    if(nullptr == (ptmpfp = MakeTempFile()) || -1 == (fd = fileno(ptmpfp))){
+    int fd;
+    std::unique_ptr<FILE, decltype(&s3fs_fclose)> ptmpfp(MakeTempFile(), &s3fs_fclose);
+    if(nullptr == ptmpfp || -1 == (fd = fileno(ptmpfp.get()))){
         S3FS_PRN_ERR("failed to open temporary file by errno(%d)", errno);
-        if(ptmpfp){
-            fclose(ptmpfp);
-        }
         FdManager::checked_lseek   = true;
         FdManager::have_lseek_hole = false;
         return false;
@@ -338,7 +369,6 @@ bool FdManager::HaveLseekHole()
             result = false;
         }
     }
-    fclose(ptmpfp);
 
     FdManager::checked_lseek   = true;
     FdManager::have_lseek_hole = result;
@@ -595,7 +625,7 @@ FdEntity* FdManager::Open(int& fd, const char* path, const headers_t* pmeta, off
 
         // open
         if(0 > (fd = ent->Open(pmeta, size, ts_mctime, flags, type))){
-            S3FS_PRN_ERR("failed to open and create new pseudo fd for path(%s).", path);
+            S3FS_PRN_ERR("failed to open and create new pseudo fd for path(%s) errno:%d.", path, fd);
             delete ent;
             return nullptr;
         }
@@ -944,6 +974,7 @@ bool FdManager::RawCheckAllCache(FILE* fp, const char* cache_stat_top_dir, const
                 S3FS_PRN_CACHE(fp, CACHEDBG_FMT_CRIT_HEAD, "Could not open cache file");
                 continue;
             }
+            scope_guard guard([&]() { close(cache_file_fd); });
 
             // get inode number for cache file
             struct stat st;
@@ -952,7 +983,6 @@ bool FdManager::RawCheckAllCache(FILE* fp, const char* cache_stat_top_dir, const
                 S3FS_PRN_CACHE(fp, CACHEDBG_FMT_FILE_PROB, object_file_path.c_str(), strOpenedWarn.c_str());
                 S3FS_PRN_CACHE(fp, CACHEDBG_FMT_CRIT_HEAD, "Could not get file inode number for cache file");
 
-                close(cache_file_fd);
                 continue;
             }
             ino_t cache_file_inode = st.st_ino;
@@ -965,7 +995,6 @@ bool FdManager::RawCheckAllCache(FILE* fp, const char* cache_stat_top_dir, const
                 S3FS_PRN_CACHE(fp, CACHEDBG_FMT_FILE_PROB, object_file_path.c_str(), strOpenedWarn.c_str());
                 S3FS_PRN_CACHE(fp, CACHEDBG_FMT_CRIT_HEAD, "Could not load cache file stats information");
 
-                close(cache_file_fd);
                 continue;
             }
             cfstat.Release();
@@ -976,7 +1005,6 @@ bool FdManager::RawCheckAllCache(FILE* fp, const char* cache_stat_top_dir, const
                 S3FS_PRN_CACHE(fp, CACHEDBG_FMT_FILE_PROB, object_file_path.c_str(), strOpenedWarn.c_str());
                 S3FS_PRN_CACHE(fp, CACHEDBG_FMT_CRIT_HEAD2 "The cache file size(%lld) and the value(%lld) from cache file stats are different", static_cast<long long int>(st.st_size), static_cast<long long int>(pagelist.Size()));
 
-                close(cache_file_fd);
                 continue;
             }
 
@@ -1008,7 +1036,6 @@ bool FdManager::RawCheckAllCache(FILE* fp, const char* cache_stat_top_dir, const
             }
             err_area_list.clear();
             warn_area_list.clear();
-            close(cache_file_fd);
         }
     }
     closedir(statsdir);
