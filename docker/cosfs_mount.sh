@@ -31,7 +31,8 @@ else
   # tmp is shared by all container of pod so use container name to isolation
   CACAHE_DIR="/tmp/${CONTAINER_NAME:-cosfs}"
   mkdir -p "$CACAHE_DIR"
-  COS_OPTIONS="$COS_OPTIONS -ouse_cache=$CACAHE_DIR -odel_cache -oensure_diskfree=2048"
+  # COS_OPTIONS="$COS_OPTIONS -ouse_cache=$CACAHE_DIR -odel_cache -oensure_diskfree=2048"
+  COS_OPTIONS="$COS_OPTIONS -oensure_diskfree=8192"
 fi
 
 if [ -z "$PARALLEL_COUNT" ]; then

@@ -118,7 +118,7 @@ const char* S3fsCred::KEYVAL_FIELDS_TYPE        = "\t";
 const char* S3fsCred::AWS_ACCESSKEYID           = "AWSAccessKeyId";
 const char* S3fsCred::AWS_SECRETKEY             = "AWSSecretKey";
 
-const int   S3fsCred::IAM_EXPIRE_MERGIN         = 20 * 60;              // update timing
+const int   S3fsCred::IAM_EXPIRE_MERGIN         = 30 * 60;              // update timing
 const char* S3fsCred::ECS_IAM_ENV_VAR           = "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI";
 const char* S3fsCred::IAMCRED_ACCESSKEYID       = "AccessKeyId";
 const char* S3fsCred::IAMCRED_SECRETACCESSKEY   = "SecretAccessKey";
@@ -498,7 +498,20 @@ bool S3fsCred::LoadIAMCredentials(AutoLock::Type type)
 
     S3fsCurl    s3fscurl;
     std::string response;
-    if(!s3fscurl.GetIAMCredentials(url.c_str(), iam_v2_token, ibm_secret_access_key, response)){
+
+    for (int i = 3; i >= 0; i--) {
+        if(s3fscurl.GetIAMCredentials(url.c_str(), iam_v2_token, ibm_secret_access_key, response)){
+            break;
+        }
+        
+        if(i == 0) {
+            return false;
+        }
+
+        sleep(5);
+    }
+    
+    if (response.size() == 0) {
         return false;
     }
 

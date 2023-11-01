@@ -4388,9 +4388,17 @@ static int s3fs_check_service()
     S3FS_PRN_INFO("check services.");
 
     // At first time for access S3, we check IAM role if it sets.
-    if(!ps3fscred->CheckIAMCredentialUpdate()){
-        S3FS_PRN_CRIT("Failed to initialize IAM credential.");
-        return EXIT_FAILURE;
+    for (int i = 3; i >= 0; i--) {
+        if(ps3fscred->CheckIAMCredentialUpdate()) {
+            break;
+        }
+        
+        if(i == 0) {
+            S3FS_PRN_CRIT("Failed to initialize IAM credential.");
+            return EXIT_FAILURE;
+        }
+
+        sleep(5);
     }
 
     S3fsCurl s3fscurl;
