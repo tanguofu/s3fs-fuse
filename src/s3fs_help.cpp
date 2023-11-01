@@ -569,6 +569,7 @@ static const char help_string[] =
     "        directory is created or deleted (when the parent directory's inode is\n"
     "        updated).\n"
     "        By default, parent directory statistics are not updated.\n"
+    "\n"
     "   sts_agent_url  (default=\"\")\n"
     "        Set the sts agent url such as http://x.x.x.x/credentials/yyyy \n"
     "        which return the struct that contain temporary COSCredentials \n"

@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  annotations:
+     ti.cloud.tencent.com/task-type: Training
+     ti.cloud.tencent.com/user-id: "100005348929"
+     ti.cloud.tencent.com/resourcegroup-id: trsg-2b7qtw94
+     ti.cloud.tencent.com/region: ap-shanghai
+  labels:
+     app: test-sts-s3fs
+     ti.cloud.tencent.com/task-type: Training
+     ti.cloud.tencent.com/user-id: "100005348929"
+     ti.cloud.tencent.com/resourcegroup-id: trsg-2b7qtw94
+     ti.cloud.tencent.com/region: ap-shanghai
+  name: test-sts-s3fs
+  namespace: train-100005348929
+spec:
+  replicas: 1
+  serviceName: "test-sts-s3fs"
+  selector:
+    matchLabels:
+      app: test-sts-s3fs
+  template:
+    metadata:
+      annotations:
+        ti.cloud.tencent.com/task-type: Training
+        ti.cloud.tencent.com/user-id: "100005348929"
+        ti.cloud.tencent.com/resourcegroup-id: trsg-2b7qtw94
+        ti.cloud.tencent.com/region: ap-shanghai
+        ti.cloud.tencent.com/cosfs-mount-uuid: 97c47765-cf6e-4bce-a806-e6af027fe01c
+      labels:
+        app: test-sts-s3fs
+        ti.cloud.tencent.com/task-type: Training
+        ti.cloud.tencent.com/user-id: "100005348929"
+        ti.cloud.tencent.com/resourcegroup-id: trsg-2b7qtw94
+        ti.cloud.tencent.com/region: ap-shanghai
+      name: test-sts-s3fs
+    spec:
+      containers:
+      - name: ti-cosfs-0
+        image: ccr.ccs.tencentyun.com/qcloud-ti-platform/cosfs:s3fs-4f4bc86-20231031
+        imagePullPolicy: Always
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
+        - name: CONTAINER_NAME
+          value: ti-cosfs-0
+        - name: BUCKET
+          value: mingjunz-test-sh-1256580188
+        - name: MOUNT_PATH
+          value: /mnt/cos-vol
+        - name: COS_URL
+          value: http://cos.ap-shanghai.myqcloud.com
+        - name: QCLOUD_TMS_CREDENTIALS_URL
+          value: http://9.0.254.244/credentials/L3B0UlFxVk5PblFGelAzVEx0bW1Mdkl5WkpQbmJIWjJTY0ExaXRVT3NsbmZMU05odm9NYjVHeG43TjJBTXNkSWV2TmNTR0lJN09iMk9qRDF1MnJRM1E9PS1rLWZLVlAzV0lsR3BnOG05TE1XNGpFa1E9PS1rLU5RVWlUSnFzYTc5aE0wTllsQktrcWM3NGlqRWFJMmJWMnVxSXdSWlhuNlRWdUdhSGxsSUNvMStDUjVVdEtpa2h4ak5zNlFGTml0VVZKQWJiLzA0WWZpdWdYNm89
+        - name: RESTART_POLICY
+          value: Always
+        - name: COS_OPTIONS
+          value: "-d"
+        - name: NVIDIA_VISIBLE_DEVICES
+        - name: NVIDIA_DRIVER_CAPABILITIES
+        command:
+        - /bin/bash
+        - -exc
+        args: 
+        - |
+           yum install -y fio 
+           sleep 1d
+        securityContext:
+          capabilities:
+            add:
+            - SYS_ADMIN
+          privileged: true
+      imagePullSecrets:
+      - name: ticloudrepo
