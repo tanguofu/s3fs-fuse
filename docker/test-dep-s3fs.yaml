@@ -54,13 +54,13 @@ spec:
         - name: CONTAINER_NAME
           value: ti-cosfs-0
         - name: BUCKET
-          value: mingjunz-test-sh-1256580188
+          value: xxx
         - name: MOUNT_PATH
           value: /mnt/cos-vol
         - name: COS_URL
           value: http://cos.ap-shanghai.myqcloud.com
         - name: QCLOUD_TMS_CREDENTIALS_URL
-          value: http://9.0.254.244/credentials/L3B0UlFxVk5PblFGelAzVEx0bW1Mdkl5WkpQbmJIWjJTY0ExaXRVT3NsbmZMU05odm9NYjVHeG43TjJBTXNkSWV2TmNTR0lJN09iMk9qRDF1MnJRM1E9PS1rLWZLVlAzV0lsR3BnOG05TE1XNGpFa1E9PS1rLU5RVWlUSnFzYTc5aE0wTllsQktrcWM3NGlqRWFJMmJWMnVxSXdSWlhuNlRWdUdhSGxsSUNvMStDUjVVdEtpa2h4ak5zNlFGTml0VVZKQWJiLzA0WWZpdWdYNm89
+          value: xxx
         - name: RESTART_POLICY
           value: Always
         - name: COS_OPTIONS
