@@ -5585,6 +5585,7 @@ int main(int argc, char* argv[])
                 exit(EXIT_FAILURE);
         }
     }
+    printf("foreground=%d, issetlogfile=%d\n", foreground, S3fsLog::IsSetLogFile());
     // print launch message
     print_launch_message(argc, argv);
 

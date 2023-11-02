@@ -56,16 +56,18 @@ else
   /cosfs_watcher.sh &
 fi
 
+set -x
 # strip \n of the url
 QCLOUD_TMS_CREDENTIALS_URL=$(echo -n "$QCLOUD_TMS_CREDENTIALS_URL" | tr -d '\n' | tr -d '\r' | tr -d ' ')
 
 if [ -z "$QCLOUD_TMS_CREDENTIALS_URL" ]; then 
-  eval /cosfs-mount "$BUCKET" -f "$MOUNT_PATH" -ourl="$COS_URL" -opasswd_file="$PASSWD_FILE" "$COS_OPTIONS"
+  /cosfs-mount "$BUCKET" -f "$MOUNT_PATH" -ourl="$COS_URL" -opasswd_file="$PASSWD_FILE" "$COS_OPTIONS"
 else
-  eval /cosfs-mount "$BUCKET" -f "$MOUNT_PATH" -ourl="$COS_URL" -osts_agent_url="$QCLOUD_TMS_CREDENTIALS_URL" "$COS_OPTIONS"
+  /cosfs-mount "$BUCKET" -f "$MOUNT_PATH" -ourl="$COS_URL" -osts_agent_url="$QCLOUD_TMS_CREDENTIALS_URL" "$COS_OPTIONS"
 fi
 ret=$?
 
+set +x
 set +e
 
 fmt_info "cosfs-mount exit $ret"
