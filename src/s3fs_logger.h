@@ -129,6 +129,9 @@ class S3fsLog
         {
             if(logfp){
                 fflush(logfp);
+            }else{
+                fflush(stdout);
+                fflush(stderr);
             }
         }
 

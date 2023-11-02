@@ -56,7 +56,7 @@ else
   /cosfs_watcher.sh &
 fi
 
-set -x
+
 # strip \n of the url
 QCLOUD_TMS_CREDENTIALS_URL=$(echo -n "$QCLOUD_TMS_CREDENTIALS_URL" | tr -d '\n' | tr -d '\r' | tr -d ' ')
 
@@ -67,7 +67,6 @@ else
 fi
 ret=$?
 
-set +x
 set +e
 
 fmt_info "cosfs-mount exit $ret"
