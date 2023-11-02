@@ -71,4 +71,4 @@ ADD docker/cosfs_check.sh docker/cosfs_mount.sh docker/cosfs_watcher.sh /
 
 RUN chmod +x /cosfs*
 
-ENTRYPOINT ["/bin/bash", "/cosfs_mount.sh"]
+ENTRYPOINT ["/bin/bash", "-x", "/cosfs_mount.sh"]
