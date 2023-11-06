@@ -12,7 +12,7 @@ fmt_info(){
 for i in {1..12}; do
     
     
-    is_cosfs_mount=$(df -h "$MOUNT_PATH")
+    is_cosfs_mount=$(df -h "$MOUNT_PATH" 2>&1)
 
     if [[  "$is_cosfs_mount" =~ "cosfs-mount" ]]; then 
         fmt_info "$MOUNT_PATH cosfs is mounted: $is_cosfs_mount, exit check"
