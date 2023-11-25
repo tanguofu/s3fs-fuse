@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/namespaces"
@@ -28,7 +29,16 @@ const (
 	CONTAINERSTATUS   = "status"
 	CONTAINEREXITCODE = "exitcode"
 	ERROR             = "error"
+	TIMEFORMAT        = "2006-01-02 15:04:05.000"
 )
+
+func Int64ToTime(created int64) string {
+
+	seconds := created / 1000
+	nanoseconds := (created % 1000) * 1000000
+	timestamp := time.Unix(seconds, nanoseconds)
+	return timestamp.Format(TIMEFORMAT)
+}
 
 type ContainerRuntime interface {
 	List(namespace string, podname string, excludesidecar string) error
@@ -73,6 +83,10 @@ func (r *DockerRuntime) List(namespace string, podname string, excludesidecar st
 		return fmt.Errorf("list docker containers err: %v", err)
 	}
 
+	var cosfsCreated int64 = 0
+	var foundContainers []dockertypes.Container
+	var foundNames []string
+
 	// https://docs.docker.com/engine/api/v1.43/#tag/Container/operation/ContainerList
 	for _, container := range containers {
 
@@ -104,6 +118,33 @@ func (r *DockerRuntime) List(namespace string, podname string, excludesidecar st
 
 		if strings.HasPrefix(containerName, excludesidecar) {
 			logentry.Infof("skip sidecar")
+			cosfsCreated = container.Created
+			continue
+		}
+
+		foundContainers = append(foundContainers, container)
+		foundNames = append(foundNames, containerName)
+	}
+
+	if cosfsCreated == 0 {
+		return fmt.Errorf("found no cosfs container in pod %s/%s", namespace, podname)
+	}
+
+	for idx, container := range foundContainers {
+
+		logentry := log.WithFields(logrus.Fields{
+			CONTAINERID:   container.ID,
+			PODNAME:       podname,
+			PODNAMESPACE:  namespace,
+			CONTAINERNAME: foundNames[idx],
+		})
+
+		// skip init container
+		if container.Created <= cosfsCreated {
+			containerCreate := Int64ToTime(container.Created)
+			cosfsCreate := Int64ToTime(cosfsCreated)
+
+			logentry.Warnf("skip init container which created: %s before the cosfs create:%s", containerCreate, cosfsCreate)
 			continue
 		}
 
@@ -210,6 +251,10 @@ func (r *ContainerdRuntime) List(namespace string, podname string, excludesideca
 		return fmt.Errorf("list containerd err: %v", err)
 	}
 
+	var cosfsCreatedTime *time.Time = nil
+	var foundContainers []containerd.Container
+	var foundNames []string
+
 	for _, container := range containers {
 
 		logentry := log.WithFields(logrus.Fields{
@@ -236,10 +281,44 @@ func (r *ContainerdRuntime) List(namespace string, podname string, excludesideca
 			logentry.Warn("list containerd not found io.kubernetes.container.name")
 			continue
 		}
-
 		logentry = logentry.WithField(CONTAINERNAME, containerName)
+
+		info, err := container.Info(context.Background())
+		if err != nil {
+			logentry.WithField(ERROR, err).Warn("get containerd info failed")
+			continue
+		}
+
 		if strings.HasPrefix(containerName, excludesidecar) {
 			logentry.Infof("skip sidecar")
+			cosfsCreatedTime = &info.CreatedAt
+			continue
+		}
+
+		foundContainers = append(foundContainers, container)
+		foundNames = append(foundNames, containerName)
+	}
+
+	if cosfsCreatedTime == nil {
+		return fmt.Errorf("found no cosfs container in pod %s/%s", namespace, podname)
+	}
+
+	for idx, container := range foundContainers {
+
+		logentry := log.WithFields(logrus.Fields{
+			CONTAINERID:   container.ID,
+			PODNAME:       podname,
+			PODNAMESPACE:  namespace,
+			CONTAINERNAME: foundNames[idx],
+		})
+
+		// skip init container
+		info, _ := container.Info(context.Background())
+		if info.CreatedAt.Before(*cosfsCreatedTime) {
+
+			logentry.Warnf("skip init container which created:%s before the cosfs create:%s",
+				info.CreatedAt.Format(TIMEFORMAT),
+				cosfsCreatedTime.Format(TIMEFORMAT))
 			continue
 		}
 
