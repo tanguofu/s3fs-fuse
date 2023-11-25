@@ -703,6 +703,9 @@ size_t S3fsCurl::DownloadWriteCallback(void* ptr, size_t size, size_t nmemb, voi
     pCurl->partdata.startpos += totalwrite;
     pCurl->partdata.size     -= totalwrite;
 
+    if (pCurl->partdata.size == 0){
+        fdatasync(pCurl->partdata.fd);
+    }
     return totalwrite;
 }
 
@@ -2722,7 +2725,7 @@ std::string S3fsCurl::CalcSignatureV2(const std::string& method, const std::stri
     std::string StringToSign;
 
     if(!access_token.empty()){
-        requestHeaders = curl_slist_sort_insert(requestHeaders, "x-amz-security-token", access_token.c_str());
+        requestHeaders = curl_slist_sort_insert(requestHeaders, "x-cos-security-token", access_token.c_str());
     }
 
     StringToSign += method + "\n";
@@ -2751,7 +2754,7 @@ std::string S3fsCurl::CalcSignature(const std::string& method, const std::string
     std::string uriencode;
 
     if(!access_token.empty()){
-        requestHeaders = curl_slist_sort_insert(requestHeaders, "x-amz-security-token", access_token.c_str());
+        requestHeaders = curl_slist_sort_insert(requestHeaders, "x-cos-security-token", access_token.c_str());
     }
 
     uriencode = urlEncodePath(canonical_uri);
@@ -2906,7 +2909,8 @@ void S3fsCurl::insertAuthHeaders()
     }
 
     if(S3fsCurl::ps3fscred->IsIBMIAMAuth()){
-        insertIBMIAMHeaders(access_key_id, access_token);
+        // insertIBMIAMHeaders(access_key_id, access_token);
+        insertV4Headers(access_key_id, secret_access_key, access_token);
     }else if(S3fsCurl::signature_type == signature_type_t::V2_ONLY){
         insertV2Headers(access_key_id, secret_access_key, access_token);
     }else{

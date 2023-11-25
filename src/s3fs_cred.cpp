@@ -119,8 +119,8 @@ constexpr char S3fsCred::AWS_ACCESSKEYID[];
 constexpr char S3fsCred::AWS_SECRETKEY[];
 
 constexpr char S3fsCred::ECS_IAM_ENV_VAR[];
-constexpr char S3fsCred::IAMCRED_ACCESSKEYID[];
-constexpr char S3fsCred::IAMCRED_SECRETACCESSKEY[];
+char        S3fsCred::IAMCRED_ACCESSKEYID[]       = "\"TmpSecretId\"";
+char        S3fsCred::IAMCRED_SECRETACCESSKEY[]   = "\"TmpSecretKey\"";
 constexpr char S3fsCred::IAMCRED_ROLEARN[];
 
 constexpr char S3fsCred::IAMv2_token_url[];
@@ -487,14 +487,26 @@ bool S3fsCred::LoadIAMCredentials(AutoLock::Type type)
 
     const char* ibm_secret_access_key = nullptr;
     std::string str_ibm_secret_access_key;
-    if(IsIBMIAMAuth()){
+    /*
+    if(IsIBMIAMAuth() && AWSSecretAccessKey.size() > 0){
         str_ibm_secret_access_key = AWSSecretAccessKey;
         ibm_secret_access_key     = str_ibm_secret_access_key.c_str();
     }
+    */
+
 
     S3fsCurl    s3fscurl;
     std::string response;
-    if(!s3fscurl.GetIAMCredentials(url.c_str(), iam_v2_token, ibm_secret_access_key, response)){
+    for (int i = 3; i >= 0; i--) {
+        if(s3fscurl.GetIAMCredentials(url.c_str(), iam_v2_token, ibm_secret_access_key, response)){
+            break;
+        }
+        if(i == 0) {
+            return false;
+        }
+        sleep(5);
+    }
+    if (response.size() == 0) {
         return false;
     }
 
@@ -549,10 +561,12 @@ bool S3fsCred::SetIAMCredentials(const char* response, AutoLock::Type type)
     iamcredmap_t keyval;
 
     if(!ParseIAMCredentialResponse(response, keyval)){
+        S3FS_PRN_ERR("ParseIAMCredentialResponse failed, response=%s", response);
         return false;
     }
 
     if(IAM_field_count != keyval.size()){
+        S3FS_PRN_ERR("IAM_field_count:%d != keyval.size():%d", IAM_field_count, keyval.size());
         return false;
     }
 
@@ -563,14 +577,18 @@ bool S3fsCred::SetIAMCredentials(const char* response, AutoLock::Type type)
     if(is_ibm_iam_auth){
         off_t tmp_expire = 0;
         if(!s3fs_strtoofft(&tmp_expire, keyval[IAM_expiry_field].c_str(), /*base=*/ 10)){
+             S3FS_PRN_ERR("s3fs_strtoofft  failed, keyval[IAM_expiry_field].c_str(): %s", keyval[IAM_expiry_field].c_str());
             return false;
         }
+        AWSAccessKeyId       = keyval[S3fsCred::IAMCRED_ACCESSKEYID];
+        AWSSecretAccessKey   = keyval[S3fsCred::IAMCRED_SECRETACCESSKEY];
         AWSAccessTokenExpire = static_cast<time_t>(tmp_expire);
     }else{
         AWSAccessKeyId       = keyval[S3fsCred::IAMCRED_ACCESSKEYID];
         AWSSecretAccessKey   = keyval[S3fsCred::IAMCRED_SECRETACCESSKEY];
         AWSAccessTokenExpire = cvtIAMExpireStringToTime(keyval[IAM_expiry_field].c_str());
     }
+    S3FS_PRN_INFO3("SetIAMCredentials AWSAccessKeyId=%s, AWSSecretAccessKey=%s, AWSAccessToken=%s, AWSAccessTokenExpire=%u", AWSAccessKeyId.c_str(), AWSSecretAccessKey.c_str(), AWSAccessToken.c_str(), AWSAccessTokenExpire);
     return true;
 }
 
@@ -1424,6 +1442,21 @@ int S3fsCred::DetectParam(const char* arg)
         return 0;
     }
 
+    if(is_prefix(arg, "sts_agent_url=")){
+        const char* sts_agent_url = strchr(arg, '=') + sizeof(char);
+        SetIAMCredentialsURL(sts_agent_url);
+        SetIsIBMIAMAuth(true);
+        //S3fsCred::IAMCRED_ACCESSKEYID       = "\"TmpSecretId\"";
+        //S3fsCred::IAMCRED_SECRETACCESSKEY   = "\"TmpSecretKey\"";
+        SetIAMTokenField("\"Token\"");
+        SetIAMExpiryField("\"ExpiredTime\"");
+        SetIAMFieldCount(4);
+        SetIMDSVersion(1, AutoLock::NONE);
+        SetIAMRole("sts", AutoLock::NONE);
+        set_builtin_cred_opts = true;
+        S3FS_PRN_INFO1("set sts_agent_url=%s", sts_agent_url);
+        return 0;
+    }
     if(0 == strcmp(arg, "use_session_token")){
         SetIsUseSessionToken(true);
         set_builtin_cred_opts = true;

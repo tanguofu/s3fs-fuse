@@ -47,8 +47,8 @@ class S3fsCred
 
         static constexpr int IAM_EXPIRE_MERGIN = 20 * 60;  // update timing
         static constexpr char ECS_IAM_ENV_VAR[] = "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI";
-        static constexpr char IAMCRED_ACCESSKEYID[] = "AccessKeyId";
-        static constexpr char IAMCRED_SECRETACCESSKEY[] = "SecretAccessKey";
+        static  char IAMCRED_ACCESSKEYID[];
+        static  char IAMCRED_SECRETACCESSKEY[];
         static constexpr char IAMCRED_ROLEARN[] = "RoleArn";
 
         static std::string  bucket_name;

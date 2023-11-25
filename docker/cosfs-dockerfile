@@ -1,0 +1,74 @@
+################################################################################
+FROM mirrors.tencent.com/tlinux/tlinux3.1-minimal:latest as builder
+
+ENV PIP_INDEX_URL="https://mirrors.tencent.com/pypi/simple" \
+    PIP_NO_CACHE_DIR=false \
+    PIP_TRUSTED_HOST="mirrors.tencent.com" \
+    PATH=$PATH:/root/bin:/root/.local/bin:/usr/local/bin:/usr/local/go/bin \
+    GOPATH=/root/go \
+    GOHOME=/usr/local/go \
+    GOPROXY=https://goproxy.woa.com,direct \
+    GOSUMDB=sum.woa.com+643d7a06+Ac5f5VOC4N8NUXdmhbm8pZSXIWfhek5JSmWdWrq7pLX4 \
+    GOPRIVATE=""
+
+RUN dnf install -y yum && \
+    yum install -y wget tar git
+
+RUN yum install -y automake gcc-c++ git libcurl-devel libxml2-devel \
+                 fuse-devel make openssl-devel fuse
+
+#ENV BUILD_TAG 20231030
+#RUN git clone -b master https://github.com/tanguofu/cosfs.git cosfs
+ADD . /cosfs
+
+RUN cd /cosfs && ./autogen.sh && ./configure && make -j
+######################################################################################
+
+FROM mirrors.tencent.com/tlinux/tlinux3.1-minimal:latest as gobuilder
+
+# Envs: append /root/.bashrc instead of ENV docker cmd to make sure all envs take effect.
+ENV PIP_INDEX_URL="https://mirrors.tencent.com/pypi/simple" \
+    PIP_NO_CACHE_DIR=false \
+    PIP_TRUSTED_HOST="mirrors.tencent.com" \
+    PATH=$PATH:/root/bin:/root/.local/bin:/usr/local/bin:/usr/local/go/bin \
+    GOPATH=/root/go \
+    GOHOME=/usr/local/go 
+
+
+RUN dnf install -y yum wget tar gzip gcc-c++ glibc-devel
+
+RUN mkdir -p $GOPATH $GOHOME && \
+    wget -q -O - https://mirrors.aliyun.com/golang/go1.19.13.linux-amd64.tar.gz | tar zxvf - -C /usr/local
+
+ADD ./sidecar /sidecar
+
+RUN cd /sidecar && \
+    go build -ldflags="-w -s " main.go   
+
+
+
+########################################################################################
+FROM mirrors.tencent.com/tlinux/tlinux3.1-minimal:latest as runtime
+
+
+
+# Envs: append /root/.bashrc instead of ENV docker cmd to make sure all envs take effect.
+ENV TZ=Asia/Shanghai \
+    PIP_INDEX_URL="https://mirrors.tencent.com/pypi/simple" \
+    PIP_NO_CACHE_DIR=false \
+    PIP_TRUSTED_HOST="mirrors.tencent.com" \
+    PATH=$PATH:/root/bin:/root/.local/bin:/usr/local/bin:/tiapp/bin:/host/usr/bin:/host/usr/local/bin
+
+# mailcap for  /etc/mime.types 
+RUN ln -fs /usr/share/zoneinfo/${TZ} /etc/localtime  && echo ${TZ} > /etc/timezone && \
+    yum install -y fuse fuse-libs procps gawk util-linux nfs-utils mailcap && \
+    yum clean all && rm -fr /var/log/*
+
+COPY --from=builder /cosfs/src/s3fs    /cosfs-mount
+COPY --from=gobuilder /sidecar/main    /sidecar
+
+ADD docker/cosfs_check.sh docker/cosfs_mount.sh docker/cosfs_watcher.sh /
+
+RUN chmod +x /cosfs*
+
+ENTRYPOINT ["/bin/bash","/cosfs_mount.sh"]
