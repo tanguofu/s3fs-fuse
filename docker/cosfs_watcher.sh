@@ -11,8 +11,8 @@ fmt_info(){
 # checkout
 is_other_container_start="0"
 
-# wait in 3 min
-for i in {1..18}; do
+# wait in 30 min
+for i in {1..30}; do
   is_other_container_start=$(/sidecar check  2>&1 |grep -c "found one container in pod")
 
   if [ "$is_other_container_start" -gt 0 ]; then 
@@ -20,8 +20,8 @@ for i in {1..18}; do
      break
   fi
   
-  fmt_info "sleep 10s to wait other container start at $i times"
-  sleep 10s 
+  fmt_info "try $i/30 times sleep to wait other container started"
+  sleep 60s 
 done
 
 
