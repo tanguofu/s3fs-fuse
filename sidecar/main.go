@@ -29,15 +29,11 @@ const (
 	CONTAINERSTATUS   = "status"
 	CONTAINEREXITCODE = "exitcode"
 	ERROR             = "error"
-	TIMEFORMAT        = "2006-01-02 15:04:05.000"
 )
 
 func Int64ToTime(created int64) string {
-
-	seconds := created / 1000
-	nanoseconds := (created % 1000) * 1000000
-	timestamp := time.Unix(seconds, nanoseconds)
-	return timestamp.Format(TIMEFORMAT)
+	timestamp := time.Unix(created, 0)
+	return timestamp.Format(time.RFC3339)
 }
 
 type ContainerRuntime interface {
@@ -317,8 +313,8 @@ func (r *ContainerdRuntime) List(namespace string, podname string, excludesideca
 		if info.CreatedAt.Before(*cosfsCreatedTime) {
 
 			logentry.Warnf("skip init container which created:%s before the cosfs create:%s",
-				info.CreatedAt.Format(TIMEFORMAT),
-				cosfsCreatedTime.Format(TIMEFORMAT))
+				info.CreatedAt.Format(time.RFC3339),
+				cosfsCreatedTime.Format(time.RFC3339))
 			continue
 		}
 
