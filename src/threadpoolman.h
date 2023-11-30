@@ -21,7 +21,9 @@
 #ifndef S3FS_THREADPOOLMAN_H_
 #define S3FS_THREADPOOLMAN_H_
 
+#include <atomic>
 #include <list>
+#include <memory>
 #include <vector>
 
 #include "psemaphore.h"
@@ -51,7 +53,7 @@ struct thpoolman_param
     thpoolman_param() : args(nullptr), psem(nullptr), pfunc(nullptr) {}
 };
 
-typedef std::list<thpoolman_param*>  thpoolman_params_t;
+typedef std::list<std::unique_ptr<thpoolman_param>> thpoolman_params_t;
 
 typedef std::vector<pthread_t> thread_list_t;
 
@@ -63,7 +65,7 @@ class ThreadPoolMan
     private:
         static ThreadPoolMan* singleton;
 
-        bool                  is_exit;
+        std::atomic<bool>     is_exit;
         Semaphore             thpoolman_sem;
 
         bool                  is_lock_init;
@@ -71,9 +73,6 @@ class ThreadPoolMan
         thread_list_t         thread_list;
 
         thpoolman_params_t    instruction_list;
-
-        bool                  is_exit_flag_init;
-        mutable pthread_mutex_t thread_exit_flag_lock;
 
     private:
         static void* Worker(void* arg);
@@ -90,12 +89,12 @@ class ThreadPoolMan
 
         bool StopThreads();
         bool StartThreads(int count);
-        bool SetInstruction(thpoolman_param* pparam);
+        bool SetInstruction(std::unique_ptr<thpoolman_param> pparam);
 
     public:
         static bool Initialize(int count);
         static void Destroy();
-        static bool Instruct(thpoolman_param* pparam);
+        static bool Instruct(std::unique_ptr<thpoolman_param> pparam);
 };
 
 #endif // S3FS_THREADPOOLMAN_H_
