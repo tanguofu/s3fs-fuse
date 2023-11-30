@@ -60,7 +60,8 @@ ENV TZ=Asia/Shanghai \
     PATH=$PATH:/root/bin:/root/.local/bin:/usr/local/bin:/tiapp/bin:/host/usr/bin:/host/usr/local/bin
 
 # mailcap for  /etc/mime.types 
-RUN ln -fs /usr/share/zoneinfo/${TZ} /etc/localtime  && echo ${TZ} > /etc/timezone && \
+RUN ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime  && \
+    echo "Asia/Shanghai" > /etc/timezone && \
     yum install -y fuse fuse-libs procps gawk util-linux nfs-utils mailcap && \
     yum clean all && rm -fr /var/log/*
 

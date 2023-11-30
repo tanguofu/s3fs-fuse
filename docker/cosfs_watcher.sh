@@ -11,16 +11,17 @@ fmt_info(){
 # checkout
 is_other_container_start="0"
 
-for i in {1..6}; do
-  is_other_container_start=$(/sidecar check |grep -c "found one container in pod")
+# wait in 3 min
+for i in {1..18}; do
+  is_other_container_start=$(/sidecar check  2>&1 |grep -c "found one container in pod")
 
-  if [ "$is_other_container_start" -eq 0 ]; then 
-    fmt_info "sleep 10s to wait other container start at $i times"
-    sleep 10s    
+  if [ "$is_other_container_start" -gt 0 ]; then 
+     fmt_info "found $is_other_container_start container in pod: $POD_NAMESPACE/$POD_NAME, wait them exit"
+     break
   fi
-
-  fmt_info "found $is_other_container_start container in pod: $POD_NAMESPACE/$POD_NAME, wait them exit"
-  break
+  
+  fmt_info "sleep 10s to wait other container start at $i times"
+  sleep 10s 
 done
 
 
@@ -32,7 +33,7 @@ do
 /sidecar wait; ret=$?
 
 if [ "$ret" -eq 0 ] || [ "$restartPolicy" == "Never" ]; then
-  fmt_info "restartPolicy is $restartPolicy and exitcode is $ret  kill cosfs and exit"
+  fmt_info "restartPolicy is $restartPolicy and exitcode is $ret kill cosfs and exit"
   kill -s SIGTERM $(pgrep "cosfs-mount")
   exit 0
 fi
