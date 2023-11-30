@@ -19,7 +19,7 @@ fi
 
 
 set -e
-COS_OPTIONS="$COS_OPTIONS -oallow_other -ononempty -ocompat_dir -odbglevel=warn"
+COS_OPTIONS="$COS_OPTIONS -oallow_other -ononempty -ocompat_dir "
 
 
 if [ -n "$USE_MEM_CACHE" ]; then
@@ -45,6 +45,12 @@ if [ -z "$MULTIPART_SIZE" ]; then
 COS_OPTIONS="$COS_OPTIONS -omultipart_size=16"
 else
 COS_OPTIONS="$COS_OPTIONS -omultipart_size=$MULTIPART_SIZE"
+fi
+
+if [ -z "$LOG_LEVEL" ]; then
+COS_OPTIONS="$COS_OPTIONS -odbglevel=warn"
+else
+COS_OPTIONS="$COS_OPTIONS -odbglevel=$LOG_LEVEL"
 fi
 
 restartPolicy=${RESTART_POLICY:-Always}
