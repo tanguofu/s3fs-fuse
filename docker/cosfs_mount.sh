@@ -19,7 +19,7 @@ fi
 
 
 set -e
-COS_OPTIONS="$COS_OPTIONS -oallow_other -ononempty -ocompat_dir "
+COS_OPTIONS="$COS_OPTIONS -oallow_other -ononempty -ocompat_dir -oensure_diskfree=1024"
 
 
 if [ -n "$USE_MEM_CACHE" ]; then
@@ -27,12 +27,14 @@ if [ -n "$USE_MEM_CACHE" ]; then
   min_memory_mb=$(grep MemTotal /proc/meminfo | awk '{printf("%.0f", $2 / 1024 / 4)}' | awk '{print ($1 < 2048) ? $1 : 2048}')
   mkdir -p /cos_tmpfs && mount -t tmpfs -o size="${min_memory_mb}"M tmpfs /cos_tmpfs
   COS_OPTIONS="$COS_OPTIONS -ouse_cache=/cos_tmpfs -odel_cache -oensure_diskfree=64"
-else
+
+elif [ -n "$USE_DISK_CACHE" ]; then
   # tmp is shared by all container of pod so use container name to isolation
-  CACAHE_DIR="/tmp/${CONTAINER_NAME:-cosfs}"
+  CACAHE_DIR="/${USE_DISK_CACHE}/${POD_NAMESPACE:-cosfs_ns}/${POD_NAME:-cosfs_pod}/${CONTAINER_NAME:-cosfs_container}"
   mkdir -p "$CACAHE_DIR"
-  # COS_OPTIONS="$COS_OPTIONS -ouse_cache=$CACAHE_DIR -odel_cache -oensure_diskfree=2048"
-  COS_OPTIONS="$COS_OPTIONS -oensure_diskfree=8192"
+  COS_OPTIONS="$COS_OPTIONS -ouse_cache=$CACAHE_DIR -odel_cache "
+else
+  COS_OPTIONS="$COS_OPTIONS"
 fi
 
 if [ -z "$PARALLEL_COUNT" ]; then
