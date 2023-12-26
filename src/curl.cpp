@@ -2509,7 +2509,7 @@ int S3fsCurl::RequestPerform(bool dontAddAuthHeaders /*=false*/)
                             break;
                         }
                     }else{
-                        S3FS_PRN_ERR("parse resbody:%s failed, with curlCode=%d, responseCode=%d", bodydata.c_str(), curlCode, responseCode)
+                        S3FS_PRN_ERR("parse resbody:%s failed, with curlCode=%d, responseCode=%d", bodydata.c_str(), curlCode, responseCode);
                     }
                 }
 
