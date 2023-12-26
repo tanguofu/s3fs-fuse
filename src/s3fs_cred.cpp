@@ -493,20 +493,18 @@ bool S3fsCred::LoadIAMCredentials(AutoLock::Type type)
         ibm_secret_access_key     = str_ibm_secret_access_key.c_str();
     }
     */
-
-
-    S3fsCurl    s3fscurl;
+   
     std::string response;
-    for (int i = 3; i >= 0; i--) {
+    for (int i = 3; i >= 0; i--) {    
+        S3fsCurl    s3fscurl;    
         if(s3fscurl.GetIAMCredentials(url.c_str(), iam_v2_token, ibm_secret_access_key, response)){
             break;
         }
-        if(i == 0) {
-            return false;
-        }
         sleep(5);
     }
+
     if (response.size() == 0) {
+        S3FS_PRN_ERR("s3fscurl.GetIAMCredentials error occurred, with url=%s",url.c_str());
         return false;
     }
 
