@@ -2508,6 +2508,8 @@ int S3fsCurl::RequestPerform(bool dontAddAuthHeaders /*=false*/)
                             result = -ENAMETOOLONG;
                             break;
                         }
+                    }else{
+                        S3FS_PRN_ERR("parse resbody:%s failed, with curlCode=%d, responseCode=%d", bodydata.c_str(), curlCode, responseCode)
                     }
                 }
 
@@ -3087,11 +3089,12 @@ bool S3fsCurl::GetIAMCredentials(const char* cred_url, const char* iam_v2_token,
     //
     int result = RequestPerform(true);
 
+
     // analyzing response
     if(0 == result){
         response.swap(bodydata);
     }else{
-        S3FS_PRN_ERR("Error(%d) occurred, could not get IAM role name.", result);
+        S3FS_PRN_ERR("Error(%d) occurred, could not get IAM role name. url=%s, resbody=%s, iam_v2_token=%s", result, url.c_str(), bodydata.c_str(), iam_v2_token);
     }
     bodydata.clear();
 
