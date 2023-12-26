@@ -2450,9 +2450,10 @@ bool S3fsCurl::RemakeHandle()
 //
 int S3fsCurl::RequestPerform(bool dontAddAuthHeaders /*=false*/)
 {
+    char* ptr_url = "";
+    curl_easy_getinfo(hCurl, CURLINFO_EFFECTIVE_URL , &ptr_url);
+
     if(S3fsLog::IsS3fsLogDbg()){
-        char* ptr_url = nullptr;
-        curl_easy_getinfo(hCurl, CURLINFO_EFFECTIVE_URL , &ptr_url);
         S3FS_PRN_DBG("connecting to URL %s", SAFESTRPTR(ptr_url));
     }
 
@@ -2482,7 +2483,7 @@ int S3fsCurl::RequestPerform(bool dontAddAuthHeaders /*=false*/)
             case CURLE_OK:
                 // Need to look at the HTTP response code
                 if(0 != curl_easy_getinfo(hCurl, CURLINFO_RESPONSE_CODE, &responseCode)){
-                    S3FS_PRN_ERR("curl_easy_getinfo failed while trying to retrieve HTTP response code");
+                    S3FS_PRN_ERR("curl_easy_getinfo failed while trying to retrieve HTTP response code url=%s", ptr_url);
                     responseCode = S3FSCURL_RESPONSECODE_FATAL_ERROR;
                     result       = -EIO;
                     break;
@@ -2542,18 +2543,18 @@ int S3fsCurl::RequestPerform(bool dontAddAuthHeaders /*=false*/)
                         break;
 
                     case 404:
-                        S3FS_PRN_INFO3("HTTP response code 404 was returned, returning ENOENT");
+                        S3FS_PRN_WARN("HTTP response code 404 was returned, returning ENOENT, url=%s", ptr_url);
                         S3FS_PRN_DBG("Body Text: %s", bodydata.c_str());
                         result = -ENOENT;
                         break;
 
                     case 416:
-                        S3FS_PRN_INFO3("HTTP response code 416 was returned, returning EIO");
+                        S3FS_PRN_INFO3("HTTP response code 416 was returned, returning EIO, url=%s", ptr_url);
                         result = -EIO;
                         break;
 
                     case 501:
-                        S3FS_PRN_INFO3("HTTP response code 501 was returned, returning ENOTSUP");
+                        S3FS_PRN_INFO3("HTTP response code 501 was returned, returning ENOTSUP, url=%s", ptr_url);
                         S3FS_PRN_DBG("Body Text: %s", bodydata.c_str());
                         result = -ENOTSUP;
                         break;
@@ -2568,7 +2569,7 @@ int S3fsCurl::RequestPerform(bool dontAddAuthHeaders /*=false*/)
                         break;
                     }
                     default:
-                        S3FS_PRN_ERR("HTTP response code %ld, returning EIO. Body Text: %s", responseCode, bodydata.c_str());
+                        S3FS_PRN_ERR("HTTP response code %ld, returning EIO. Body Text: %s,  url=%s", responseCode, bodydata.c_str(), ptr_url);
                         result = -EIO;
                         break;
                 }
