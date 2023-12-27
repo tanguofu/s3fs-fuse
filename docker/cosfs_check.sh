@@ -8,6 +8,12 @@ fmt_info(){
   printf '%s info: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" 
 }
 
+# skip check, as this check block container ready that make podip not sync to apiserver
+is_cosfs_mount=$(df -h "$MOUNT_PATH" 2>&1)
+fmt_info "$MOUNT_PATH mount stat: $is_cosfs_mount"
+exit 0
+
+
 # wait cosfs process mount the cos
 for i in {1..12}; do
     

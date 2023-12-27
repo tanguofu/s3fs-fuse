@@ -61,8 +61,8 @@ std::string S3fsLog::GetCurrentTime()
         }else{
             gettimeofday(&now, nullptr);
         }
-        strftime(tmp, sizeof(tmp), "%Y-%m-%dT%H:%M:%S", gmtime_r(&now.tv_sec, &res));
-        current_time << tmp << "." << std::setfill('0') << std::setw(3) << (now.tv_usec / 1000) << "Z ";
+        strftime(tmp, sizeof(tmp), "%Y-%m-%dT%H:%M:%S", localtime_r(&now.tv_sec, &res));
+        current_time << tmp << "." << std::setfill('0') << std::setw(3) << (now.tv_usec / 1000);
     }
     return current_time.str();
 }
