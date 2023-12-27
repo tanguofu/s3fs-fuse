@@ -496,7 +496,8 @@ bool S3fsCred::LoadIAMCredentials(AutoLock::Type type)
    
     std::string response;
     for (int i = 3; i >= 0; i--) {    
-        S3fsCurl    s3fscurl;    
+        S3fsCurl    s3fscurl;
+        s3fscurl.SetRetries(1);        
         if(s3fscurl.GetIAMCredentials(url.c_str(), iam_v2_token, ibm_secret_access_key, response)){
             break;
         }
@@ -512,6 +513,7 @@ bool S3fsCred::LoadIAMCredentials(AutoLock::Type type)
         S3FS_PRN_ERR("Something error occurred, could not set IAM role name.");
         return false;
     }
+    
     return true;
 }
 
@@ -586,7 +588,7 @@ bool S3fsCred::SetIAMCredentials(const char* response, AutoLock::Type type)
         AWSSecretAccessKey   = keyval[S3fsCred::IAMCRED_SECRETACCESSKEY];
         AWSAccessTokenExpire = cvtIAMExpireStringToTime(keyval[IAM_expiry_field].c_str());
     }
-    S3FS_PRN_INFO3("SetIAMCredentials AWSAccessKeyId=%s, AWSSecretAccessKey=%s, AWSAccessToken=%s, AWSAccessTokenExpire=%u", AWSAccessKeyId.c_str(), AWSSecretAccessKey.c_str(), AWSAccessToken.c_str(), AWSAccessTokenExpire);
+    S3FS_PRN_ERR("SetIAMCredentials AWSAccessKeyId=%s, AWSSecretAccessKey=%s, AWSAccessToken=%s, AWSAccessTokenExpire=%lu", AWSAccessKeyId.c_str(), AWSSecretAccessKey.c_str(), AWSAccessToken.c_str(), AWSAccessTokenExpire);
     return true;
 }
 

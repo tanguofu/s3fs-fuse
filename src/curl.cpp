@@ -2450,7 +2450,7 @@ bool S3fsCurl::RemakeHandle()
 //
 int S3fsCurl::RequestPerform(bool dontAddAuthHeaders /*=false*/)
 {
-    char* ptr_url = "";
+    char* ptr_url = const_cast<char*>("");
     curl_easy_getinfo(hCurl, CURLINFO_EFFECTIVE_URL , &ptr_url);
 
     if(S3fsLog::IsS3fsLogDbg()){
@@ -2509,8 +2509,13 @@ int S3fsCurl::RequestPerform(bool dontAddAuthHeaders /*=false*/)
                             result = -ENAMETOOLONG;
                             break;
                         }
-                    }else{
-                        S3FS_PRN_ERR("parse resbody:%s failed, with curlCode=%d, responseCode=%d", bodydata.c_str(), curlCode, responseCode);
+                    }else if (bodydata.size() > 0) {
+                  
+                        std::ostringstream resheaderstr;                        
+                        for(headers_t::iterator iter = responseHeaders.begin(); iter != responseHeaders.end(); ++iter){
+                            resheaderstr << iter->first<<":"<<iter->second<<",";
+                        }                        
+                        S3FS_PRN_ERR("parse resbody:%s failed, with curlCode=%d, responseCode=%ld resheader=%s url=%s at retry=%d", bodydata.c_str(), curlCode, responseCode, resheaderstr.str().c_str(), ptr_url, retrycnt);
                     }
                 }
 
@@ -3074,6 +3079,14 @@ bool S3fsCurl::GetIAMCredentials(const char* cred_url, const char* iam_v2_token,
     if(CURLE_OK != curl_easy_setopt(hCurl, CURLOPT_URL, url.c_str())){
         return false;
     }
+    
+    if(CURLE_OK != curl_easy_setopt(hCurl, CURLOPT_HEADERDATA, reinterpret_cast<void*>(&responseHeaders))){
+        return false;
+    }
+    if(CURLE_OK != curl_easy_setopt(hCurl, CURLOPT_HEADERFUNCTION, HeaderCallback)){
+        return false;
+    }
+
     if(CURLE_OK != curl_easy_setopt(hCurl, CURLOPT_WRITEDATA, reinterpret_cast<void*>(&bodydata))){
         return false;
     }
@@ -3095,6 +3108,7 @@ bool S3fsCurl::GetIAMCredentials(const char* cred_url, const char* iam_v2_token,
     if(0 == result){
         response.swap(bodydata);
     }else{
+
         S3FS_PRN_ERR("Error(%d) occurred, could not get IAM role name. url=%s, resbody=%s, iam_v2_token=%s", result, url.c_str(), bodydata.c_str(), iam_v2_token);
     }
     bodydata.clear();
