@@ -67,7 +67,7 @@ fi
 
 # strip \n of the url
 QCLOUD_TMS_CREDENTIALS_URL=$(echo -n "$QCLOUD_TMS_CREDENTIALS_URL" | tr -d '\n' | tr -d '\r' | tr -d ' ')
-
+set +e
 if [ -z "$QCLOUD_TMS_CREDENTIALS_URL" ]; then 
   /cosfs-mount "$BUCKET" -f "$MOUNT_PATH" -ourl="$COS_URL" -opasswd_file="$PASSWD_FILE" $COS_OPTIONS
 else
@@ -75,7 +75,7 @@ else
 fi
 ret=$?
 
-set +e
+
 
 fmt_info "cosfs-mount exit $ret"
 
@@ -86,5 +86,5 @@ if [[ "$info" =~ "not connected" ]]; then
   fmt_info "$MOUNT_PATH is not connected: $info"
 fi
 
-# keep exit code 0 
-exit 0
+
+exit $ret

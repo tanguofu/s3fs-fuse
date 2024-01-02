@@ -3108,7 +3108,6 @@ bool S3fsCurl::GetIAMCredentials(const char* cred_url, const char* iam_v2_token,
     if(0 == result){
         response.swap(bodydata);
     }else{
-
         S3FS_PRN_ERR("Error(%d) occurred, could not get IAM role name. url=%s, resbody=%s, iam_v2_token=%s", result, url.c_str(), bodydata.c_str(), iam_v2_token);
     }
     bodydata.clear();

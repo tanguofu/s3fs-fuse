@@ -501,7 +501,7 @@ bool S3fsCred::LoadIAMCredentials(AutoLock::Type type)
         if(s3fscurl.GetIAMCredentials(url.c_str(), iam_v2_token, ibm_secret_access_key, response)){
             break;
         }
-        sleep(5);
+        sleep(3);
     }
 
     if (response.size() == 0) {
