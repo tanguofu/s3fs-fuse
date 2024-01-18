@@ -1,4 +1,4 @@
-#!/bin/bash 
+#!/bin/bash
 
 fmt_info(){
   printf '%s info: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" 
@@ -69,22 +69,19 @@ fi
 QCLOUD_TMS_CREDENTIALS_URL=$(echo -n "$QCLOUD_TMS_CREDENTIALS_URL" | tr -d '\n' | tr -d '\r' | tr -d ' ')
 set +e
 if [ -z "$QCLOUD_TMS_CREDENTIALS_URL" ]; then 
-  /cosfs-mount "$BUCKET" -f "$MOUNT_PATH" -ourl="$COS_URL" -opasswd_file="$PASSWD_FILE" $COS_OPTIONS
+  nice -n -15 /cosfs-mount "$BUCKET" -f "$MOUNT_PATH" -ourl="$COS_URL" -opasswd_file="$PASSWD_FILE" $COS_OPTIONS
 else
-  /cosfs-mount "$BUCKET" -f "$MOUNT_PATH" -ourl="$COS_URL" -osts_agent_url="$QCLOUD_TMS_CREDENTIALS_URL" $COS_OPTIONS
+  nice -n -15 /cosfs-mount "$BUCKET" -f "$MOUNT_PATH" -ourl="$COS_URL" -osts_agent_url="$QCLOUD_TMS_CREDENTIALS_URL" $COS_OPTIONS
 fi
-ret=$?
 
-
-
-fmt_info "cosfs-mount exit $ret"
-
-# clear mount point
+mount_ret=$?
 info=$(df -h "$MOUNT_PATH" 2>&1)
-if [[ "$info" =~ "not connected" ]]; then
+fmt_info "cosfs-mount exit code: $mount_ret, mount info: $info"
+
+if [ $mount_ret -ne 0 ] && echo "$info" | grep -q "not connected"; then
   fusermount -u "$MOUNT_PATH"
-  fmt_info "$MOUNT_PATH is not connected: $info"
+  fuserret=$?
+  fmt_info "fusermount -u "$MOUNT_PATH" ret:$fuserret"
 fi
 
-
-exit $ret
+exit $mount_ret
