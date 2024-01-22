@@ -19,8 +19,8 @@ fi
 
 
 set -e
-COS_OPTIONS="$COS_OPTIONS -oallow_other -ononempty -ocompat_dir -oensure_diskfree=1024"
-
+COS_OPTIONS="$COS_OPTIONS -oallow_other -ononempty -ocompat_dir "
+USE_DISK_CACHE="/tmp"
 
 if [ -n "$USE_MEM_CACHE" ]; then
   # calc min(2GB, Mem/4)
@@ -30,9 +30,9 @@ if [ -n "$USE_MEM_CACHE" ]; then
 
 elif [ -n "$USE_DISK_CACHE" ]; then
   # tmp is shared by all container of pod so use container name to isolation
-  CACAHE_DIR="/${USE_DISK_CACHE}/${POD_NAMESPACE:-cosfs_ns}/${POD_NAME:-cosfs_pod}/${CONTAINER_NAME:-cosfs_container}"
+  CACAHE_DIR="${USE_DISK_CACHE}/${POD_NAMESPACE:-cosfs_ns}/${POD_NAME:-cosfs_pod}/${CONTAINER_NAME:-cosfs_container}"
   mkdir -p "$CACAHE_DIR"
-  COS_OPTIONS="$COS_OPTIONS -ouse_cache=$CACAHE_DIR -odel_cache "
+  COS_OPTIONS="$COS_OPTIONS -ouse_cache=$CACAHE_DIR -odel_cache -oensure_diskfree=2048 "
 else
   COS_OPTIONS="$COS_OPTIONS"
 fi
