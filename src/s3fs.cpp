@@ -645,6 +645,7 @@ static int get_object_attribute(const char* path, struct stat* pstbuf, headers_t
                 *pisforce = true;
                 result    = 0;
             }
+		// support tencent cos	
         }else if (is_bucket_mountpoint) {
             *pisforce = true;
         }
@@ -3049,7 +3050,7 @@ static int s3fs_fsync(const char* _path, int datasync, struct fuse_file_info* fi
     WTF8_ENCODE(path)
     int result = 0;
 
-    FUSE_CTX_INFO("[path=%s][pseudo_fd=%llu]", path, (unsigned long long)(fi->fh));
+    FUSE_CTX_INFO("[path=%s][datasync=%d][pseudo_fd=%llu]", path, datasync, (unsigned long long)(fi->fh));
 
     AutoFdEntity autoent;
     FdEntity*    ent;
@@ -3061,6 +3062,16 @@ static int s3fs_fsync(const char* _path, int datasync, struct fuse_file_info* fi
             ent->UpdateCtime();
         }
         result = ent->Flush(static_cast<int>(fi->fh), AutoLock::NONE, false);
+
+        if(0 != datasync){
+            // [NOTE]
+            // The metadata are not updated when fdatasync is called.
+            // Instead of it, these metadata are pended and set the dirty flag here.
+            // Setting this flag allows metadata to be updated even if there is no
+            // content update between the fdatasync call and the flush call.
+            //
+            ent->MarkDirtyMetadata();
+        }
 
         if(is_new_file){
             // update parent directory timestamp
@@ -3252,7 +3263,7 @@ static std::unique_ptr<S3fsCurl> multi_head_retry_callback(S3fsCurl* s3fscurl)
     }
 
     std::unique_ptr<S3fsCurl> newcurl(new S3fsCurl(s3fscurl->IsUseAhbe()));
-    std::string path       = s3fscurl->GetPath();
+    std::string path       = s3fscurl->GetBasePath();
     std::string base_path  = s3fscurl->GetBasePath();
     std::string saved_path = s3fscurl->GetSpecialSavedPath();
 
@@ -3323,7 +3334,7 @@ static int readdir_multi_head(const char* path, const S3ObjList& head, void* buf
         // First check for directory, start checking "not SSE-C".
         // If checking failed, retry to check with "SSE-C" by retry callback func when SSE-C mode.
         std::unique_ptr<S3fsCurl> s3fscurl(new S3fsCurl());
-        if(!s3fscurl->PreHeadRequest(disppath, (*iter), disppath)){  // target path = cache key path.(ex "dir/")
+        if(!s3fscurl->PreHeadRequest(disppath, disppath, disppath)){  // target path = cache key path.(ex "dir/")
             S3FS_PRN_WARN("Could not make curl object for head request(%s).", disppath.c_str());
             continue;
         }
@@ -3372,10 +3383,9 @@ static int readdir_multi_head(const char* path, const S3ObjList& head, void* buf
 
         for(s3obj_list_t::iterator reiter = notfound_param.notfound_list.begin(); reiter != notfound_param.notfound_list.end(); ++reiter){
             int dir_result;
-            if(0 == (dir_result = directory_empty(reiter->c_str()))){
+            std::string dirpath = *reiter;
+            if(-ENOTEMPTY == (dir_result = directory_empty(dirpath.c_str()))){
                 // Found objects under the path, so the path is directory.
-                //
-                std::string dirpath = path + (*reiter);
 
                 // Add stat cache
                 if(StatCache::getStatCacheData()->AddStat(dirpath, dummy_header, true)){    // set forcedir=true
@@ -3452,7 +3462,6 @@ static int list_bucket(const char* path, S3ObjList& head, const char* delimiter,
     std::string next_marker;
     bool truncated = true;
     S3fsCurl  s3fscurl;
-    xmlDocPtr doc;
 
     S3FS_PRN_INFO1("[path=%s]", path);
 
@@ -3512,20 +3521,20 @@ static int list_bucket(const char* path, S3ObjList& head, const char* delimiter,
         std::string encbody = get_encoded_cr_code(body->c_str());
 
         // xmlDocPtr
-        if(nullptr == (doc = xmlReadMemory(encbody.c_str(), static_cast<int>(encbody.size()), "", nullptr, 0))){
-            S3FS_PRN_ERR("xmlReadMemory returns with error.");
+        std::unique_ptr<xmlDoc, decltype(&xmlFreeDoc)> doc(xmlReadMemory(encbody.c_str(), static_cast<int>(encbody.size()), "", nullptr, XML_PARSE_RECOVER), xmlFreeDoc);
+        if(nullptr == doc){
+            S3FS_PRN_ERR("xmlReadMemory returns with error. encbody=%s", body->c_str());
             return -EIO;
         }
-        if(0 != append_objects_from_xml(path, doc, head)){
+        if(0 != append_objects_from_xml(path, doc.get(), head)){
             S3FS_PRN_ERR("append_objects_from_xml returns with error.");
-            xmlFreeDoc(doc);
             return -EIO;
         }
-        if(true == (truncated = is_truncated(doc))){
-            auto tmpch = get_next_continuation_token(doc);
+        if(true == (truncated = is_truncated(doc.get()))){
+            auto tmpch = get_next_continuation_token(doc.get());
             if(nullptr != tmpch){
                 next_continuation_token = reinterpret_cast<const char*>(tmpch.get());
-            }else if(nullptr != (tmpch = get_next_marker(doc))){
+            }else if(nullptr != (tmpch = get_next_marker(doc.get()))){
                 next_marker = reinterpret_cast<const char*>(tmpch.get());
             }
 
@@ -3546,7 +3555,6 @@ static int list_bucket(const char* path, S3ObjList& head, const char* delimiter,
                 }
             }
         }
-        S3FS_XMLFREEDOC(doc);
 
         // reset(initialize) curl object
         s3fscurl.DestroyCurlHandle();
@@ -4035,7 +4043,7 @@ static int s3fs_getxattr(const char* path, const char* name, char* value, size_t
     const char* pvalue = xiter->second.c_str();
 
     if(0 < size){
-        if(static_cast<size_t>(size) < length){
+        if(size < length){
             // over buffer size
             return -ERANGE;
         }
@@ -4291,12 +4299,12 @@ static void* s3fs_init(struct fuse_conn_info* conn)
 
     // Investigate system capabilities
     #ifndef __APPLE__
-    if((unsigned int)conn->capable & FUSE_CAP_ATOMIC_O_TRUNC){
+    if(conn->capable & FUSE_CAP_ATOMIC_O_TRUNC){
          conn->want |= FUSE_CAP_ATOMIC_O_TRUNC;
     }
     #endif
 
-    if((unsigned int)conn->capable & FUSE_CAP_BIG_WRITES){
+    if(conn->capable & FUSE_CAP_BIG_WRITES){
          conn->want |= FUSE_CAP_BIG_WRITES;
     }
 
@@ -4391,6 +4399,35 @@ static bool check_endpoint_error(const char* pbody, size_t len, std::string& exp
     return true;
 }
 
+static bool check_invalid_sse_arg_error(const char* pbody, size_t len)
+{
+    if(!pbody){
+        return false;
+    }
+
+    std::string code;
+    if(!simple_parse_xml(pbody, len, "Code", code) || code != "InvalidArgument"){
+        return false;
+    }
+    std::string argname;
+    if(!simple_parse_xml(pbody, len, "ArgumentName", argname) || argname != "x-amz-server-side-encryption"){
+        return false;
+    }
+    return true;
+}
+
+static bool check_error_message(const char* pbody, size_t len, std::string& message)
+{
+    message.clear();
+    if(!pbody){
+        return false;
+    }
+    if(!simple_parse_xml(pbody, len, "Message", message)){
+        return false;
+    }
+    return true;
+}
+
 // [NOTE]
 // This function checks if the bucket is accessible when s3fs starts.
 //
@@ -4428,8 +4465,11 @@ static int s3fs_check_service()
 
     S3fsCurl s3fscurl;
     int      res;
-    if(0 > (res = s3fscurl.CheckBucket(get_realpath("/").c_str(), support_compat_dir))){
+    bool     force_no_sse = false;
+
+    while(0 > (res = s3fscurl.CheckBucket(get_realpath("/").c_str(), support_compat_dir, force_no_sse))){
         // get response code
+        bool do_retry     = false;
         long responseCode = s3fscurl.GetLastResponseCode();
 
         // check wrong endpoint, and automatically switch endpoint
@@ -4439,6 +4479,8 @@ static int s3fs_check_service()
             const std::string* body = s3fscurl.GetBodyData();
             std::string expectregion;
             std::string expectendpoint;
+
+            // Check if any case can be retried
             if(check_region_error(body->c_str(), body->size(), expectregion)){
                 // [NOTE]
                 // If endpoint is not specified(using us-east-1 region) and
@@ -4472,10 +4514,9 @@ static int s3fs_check_service()
                         s3host = "https://s3-" + endpoint + ".amazonaws.com";
                     }
 
-                    // retry to check
+                    // Retry with changed host
                     s3fscurl.DestroyCurlHandle();
-                    res          = s3fscurl.CheckBucket(get_realpath("/").c_str(), support_compat_dir);
-                    responseCode = s3fscurl.GetLastResponseCode();
+                    do_retry = true;
 
                 }else{
                     S3FS_PRN_CRIT("The bucket region is not '%s'(default), it is correctly '%s'. You should specify endpoint(%s) option.", endpoint.c_str(), expectregion.c_str(), expectregion.c_str());
@@ -4489,35 +4530,53 @@ static int s3fs_check_service()
                     S3FS_PRN_CRIT("S3 service returned PermanentRedirect with %s (current is url(%s) and endpoint(%s)). You need to specify correct endpoint option.", expectendpoint.c_str(), s3host.c_str(), endpoint.c_str());
                 }
                 return EXIT_FAILURE;
+
+            }else if(check_invalid_sse_arg_error(body->c_str(), body->size())){
+                // SSE argument error, so retry it without SSE
+                S3FS_PRN_CRIT("S3 service returned InvalidArgument(x-amz-server-side-encryption), so retry without adding x-amz-server-side-encryption.");
+
+                // Retry without sse parameters
+                s3fscurl.DestroyCurlHandle();
+                do_retry     = true;
+                force_no_sse = true;
             }
         }
 
-        // retry signature v2
-        if(0 > res && (responseCode == 400 || responseCode == 403) && S3fsCurl::GetSignatureType() == signature_type_t::V2_OR_V4){
+        // Try changing signature from v4 to v2
+        //
+        // [NOTE]
+        // If there is no case to retry with the previous checks, and there
+        // is a chance to retry with signature v2, prepare to retry with v2.
+        //
+        if(!do_retry && (responseCode == 400 || responseCode == 403) && S3fsCurl::GetSignatureType() == signature_type_t::V2_OR_V4){
             // switch sigv2
             S3FS_PRN_CRIT("Failed to connect by sigv4, so retry to connect by signature version 2. But you should to review url and endpoint option.");
-            S3fsCurl::SetSignatureType(signature_type_t::V2_ONLY);
 
             // retry to check with sigv2
             s3fscurl.DestroyCurlHandle();
-            res          = s3fscurl.CheckBucket(get_realpath("/").c_str(), support_compat_dir);
-            responseCode = s3fscurl.GetLastResponseCode();
+            do_retry = true;
+            S3fsCurl::SetSignatureType(signature_type_t::V2_ONLY);
         }
 
         // check errors(after retrying)
-        if(0 > res && responseCode != 200 && responseCode != 301){
+        if(!do_retry && responseCode != 200 && responseCode != 301){
+            // parse error message if existed
+            std::string errMessage;
+            const std::string* body = s3fscurl.GetBodyData();
+            check_error_message(body->c_str(), body->size(), errMessage);
+
             if(responseCode == 400){
-                S3FS_PRN_CRIT("Failed to check bucket and directory for mount point : Bad Request(host=%s)", s3host.c_str());
+                S3FS_PRN_CRIT("Failed to check bucket and directory for mount point : Bad Request(host=%s, message=%s)", s3host.c_str(), errMessage.c_str());
             }else if(responseCode == 403){
-                S3FS_PRN_CRIT("Failed to check bucket and directory for mount point : Invalid Credentials(host=%s)", s3host.c_str());
+                S3FS_PRN_CRIT("Failed to check bucket and directory for mount point : Invalid Credentials(host=%s, message=%s)", s3host.c_str(), errMessage.c_str());
             }else if(responseCode == 404){
                 if(mount_prefix.empty()){
-                    S3FS_PRN_CRIT("Failed to check bucket and directory for mount point : Bucket or directory not found(host=%s)", s3host.c_str());
+                    S3FS_PRN_CRIT("Failed to check bucket and directory for mount point : Bucket or directory not found(host=%s, message=%s)", s3host.c_str(), errMessage.c_str());
                 }else{
-                    S3FS_PRN_CRIT("Failed to check bucket and directory for mount point : Bucket or directory(%s) not found(host=%s) - You may need to specify the compat_dir option.", mount_prefix.c_str(), s3host.c_str());
+                    S3FS_PRN_CRIT("Failed to check bucket and directory for mount point : Bucket or directory(%s) not found(host=%s, message=%s) - You may need to specify the compat_dir option.", mount_prefix.c_str(), s3host.c_str(), errMessage.c_str());
                 }
             }else{
-                S3FS_PRN_CRIT("Failed to check bucket and directory for mount point : Unable to connect(host=%s)", s3host.c_str());
+                S3FS_PRN_CRIT("Failed to check bucket and directory for mount point : Unable to connect(host=%s, message=%s)", s3host.c_str(), errMessage.c_str());
             }
             return EXIT_FAILURE;
         }
@@ -4677,7 +4736,7 @@ static fsblkcnt_t parse_bucket_size(char* max_size)
         if(!isdigit(*ptr)){
             return 0;   // wrong number
         }
-        n_bytes = static_cast<unsigned long long>(strtoull(max_size, nullptr, 10));
+        n_bytes = strtoull(max_size, nullptr, 10);
         if((INT64_MAX / scale) < n_bytes){
             return 0;   // overflow
         }
@@ -5151,7 +5210,7 @@ static int my_fuse_opt_proc(void* data, const char* arg, int key, struct fuse_ar
             return 0;
         }
         else if(is_prefix(arg, "multipart_size=")){
-            off_t size = static_cast<off_t>(cvt_strtoofft(strchr(arg, '=') + sizeof(char), /*base=*/ 10));
+            off_t size = cvt_strtoofft(strchr(arg, '=') + sizeof(char), /*base=*/ 10);
             if(!S3fsCurl::SetMultipartSize(size)){
                 S3FS_PRN_EXIT("multipart_size option must be at least 5 MB.");
                 return -1;
@@ -5159,7 +5218,7 @@ static int my_fuse_opt_proc(void* data, const char* arg, int key, struct fuse_ar
             return 0;
         }
         else if(is_prefix(arg, "multipart_copy_size=")){
-            off_t size = static_cast<off_t>(cvt_strtoofft(strchr(arg, '=') + sizeof(char), /*base=*/ 10));
+            off_t size = cvt_strtoofft(strchr(arg, '=') + sizeof(char), /*base=*/ 10);
             if(!S3fsCurl::SetMultipartCopySize(size)){
                 S3FS_PRN_EXIT("multipart_copy_size option must be at least 5 MB.");
                 return -1;
@@ -5167,7 +5226,7 @@ static int my_fuse_opt_proc(void* data, const char* arg, int key, struct fuse_ar
             return 0;
         }
         else if(is_prefix(arg, "max_dirty_data=")){
-            off_t size = static_cast<off_t>(cvt_strtoofft(strchr(arg, '=') + sizeof(char), /*base=*/ 10));
+            off_t size = cvt_strtoofft(strchr(arg, '=') + sizeof(char), /*base=*/ 10);
             if(size >= 50){
                 size *= 1024 * 1024;
             }else if(size != -1){

@@ -65,15 +65,14 @@ static bool GetXmlNsUrl(xmlDocPtr doc, std::string& nsurl)
             strNs  = "";
             xmlNodePtr pRootNode = xmlDocGetRootElement(doc);
             if(pRootNode){
-                xmlNsPtr* nslist = xmlGetNsList(doc, pRootNode);
+                std::unique_ptr<xmlNsPtr, decltype(xmlFree)> nslist(xmlGetNsList(doc, pRootNode), xmlFree);
                 if(nslist){
-                    if(nslist[0] && nslist[0]->href){
-                        int len = xmlStrlen(nslist[0]->href);
+                    if(*nslist && (*nslist)[0].href){
+                        int len = xmlStrlen((*nslist)[0].href);
                         if(0 < len){
-                            strNs = std::string(reinterpret_cast<const char*>(nslist[0]->href), len);
+                            strNs = std::string(reinterpret_cast<const char*>((*nslist)[0].href), len);
                         }
                     }
-                    S3FS_XMLFREE(nslist);
                 }
             }
         }
@@ -110,7 +109,7 @@ static unique_ptr_xmlChar get_base_exp(xmlDocPtr doc, const char* exp)
         return {nullptr, xmlFree};
     }
     if(xmlXPathNodeSetIsEmpty(marker_xp->nodesetval)){
-        S3FS_PRN_ERR("marker_xp->nodesetval is empty. exp_string: %s", exp_string.c_str());
+        S3FS_PRN_INFO("marker_xp->nodesetval is empty.");
         return {nullptr, xmlFree};
     }
     xmlNodeSetPtr nodes  = marker_xp->nodesetval;

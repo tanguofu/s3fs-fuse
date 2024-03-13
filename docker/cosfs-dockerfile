@@ -1,5 +1,5 @@
 ################################################################################
-FROM mirrors.tencent.com/tlinux/tlinux3.1-minimal:latest as builder
+FROM mirrors.tencent.com/tlinux/tlinux4.0-minimal:latest as builder
 
 ENV PIP_INDEX_URL="https://mirrors.tencent.com/pypi/simple" \
     PIP_NO_CACHE_DIR=false \
@@ -24,7 +24,7 @@ ADD . /cosfs
 RUN cd /cosfs && ./autogen.sh && ./configure && make -j
 ######################################################################################
 
-FROM mirrors.tencent.com/tlinux/tlinux3.1-minimal:latest as gobuilder
+FROM mirrors.tencent.com/tlinux/tlinux4.0-minimal:latest as gobuilder
 
 # Envs: append /root/.bashrc instead of ENV docker cmd to make sure all envs take effect.
 ENV PIP_INDEX_URL="https://mirrors.tencent.com/pypi/simple" \
@@ -48,7 +48,7 @@ RUN cd /sidecar && \
 
 
 ########################################################################################
-FROM mirrors.tencent.com/tlinux/tlinux3.1-minimal:latest as runtime
+FROM mirrors.tencent.com/tlinux/tlinux4.0-minimal:latest as runtime
 
 
 

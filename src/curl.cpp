@@ -609,7 +609,7 @@ size_t S3fsCurl::ReadCallback(void* ptr, size_t size, size_t nmemb, void* userp)
     memcpy(ptr, pCurl->postdata, copysize);
 
     pCurl->postdata_remaining = (pCurl->postdata_remaining > static_cast<off_t>(copysize) ? (pCurl->postdata_remaining - copysize) : 0);
-    pCurl->postdata          += static_cast<size_t>(copysize);
+    pCurl->postdata          += copysize;
 
     return copysize;
 }
@@ -703,7 +703,7 @@ size_t S3fsCurl::DownloadWriteCallback(void* ptr, size_t size, size_t nmemb, voi
     pCurl->partdata.startpos += totalwrite;
     pCurl->partdata.size     -= totalwrite;
 
-    if (pCurl->partdata.size == 0){
+    if (pCurl->partdata.size == 0 || pCurl->partdata.size > 1024*1024*4){
         fdatasync(pCurl->partdata.fd);
     }
     return totalwrite;
@@ -901,6 +901,13 @@ bool S3fsCurl::FinalCheckSse()
                 S3FS_PRN_ERR("sse type is SSE-KMS, but signature type is not v4. SSE-KMS require signature v4.");
                 return false;
             }
+
+            // SSL/TLS is required for KMS
+            //
+            if(!is_prefix(s3host.c_str(), "https://")){
+                S3FS_PRN_ERR("The sse type is SSE-KMS, but it is not configured to use SSL/TLS. SSE-KMS requires SSL/TLS communication.");
+                return false;
+            }
             return true;
     }
     S3FS_PRN_ERR("sse type is unknown(%d).", static_cast<int>(S3fsCurl::ssetype));
@@ -959,7 +966,7 @@ bool S3fsCurl::GetSseKey(std::string& md5, std::string& ssekey)
 
 bool S3fsCurl::GetSseKeyMd5(size_t pos, std::string& md5)
 {
-    if(S3fsCurl::sseckeys.size() <= static_cast<size_t>(pos)){
+    if(S3fsCurl::sseckeys.size() <= pos){
         return false;
     }
     size_t cnt = 0;
@@ -1522,7 +1529,7 @@ int S3fsCurl::ParallelMixMultipartUploadRequest(const char* tpath, headers_t& me
             for(off_t i = 0, bytes = 0; i < iter->bytes; i += bytes){
                 std::unique_ptr<S3fsCurl> s3fscurl_para(new S3fsCurl(true));
 
-                bytes = std::min(static_cast<off_t>(GetMultipartCopySize()), iter->bytes - i);
+                bytes = std::min(GetMultipartCopySize(), iter->bytes - i);
                 /* every part should be larger than MIN_MULTIPART_SIZE and smaller than FIVE_GB */
                 off_t remain_bytes = iter->bytes - i - bytes;
 
@@ -3461,7 +3468,7 @@ int S3fsCurl::PutRequest(const char* tpath, headers_t& meta, int fd)
         std::string strMD5;
         if(-1 != fd){
             strMD5 = s3fs_get_content_md5(fd);
-            if(0 == strMD5.length()){
+            if(strMD5.empty()){
                 S3FS_PRN_ERR("Failed to make MD5.");
                 return -EIO;
             }
@@ -3632,7 +3639,7 @@ int S3fsCurl::GetObjectRequest(const char* tpath, int fd, off_t start, off_t siz
     return result;
 }
 
-int S3fsCurl::CheckBucket(const char* check_path, bool compat_dir)
+int S3fsCurl::CheckBucket(const char* check_path, bool compat_dir, bool force_no_sse)
 {
     S3FS_PRN_INFO3("check a bucket path(%s)%s.", (check_path && 0 < strlen(check_path)) ? check_path : "", compat_dir ? " containing compatible directory paths" : "");
 
@@ -3682,7 +3689,7 @@ int S3fsCurl::CheckBucket(const char* check_path, bool compat_dir)
     bodydata.clear();
 
     // SSE
-    if(S3fsCurl::GetSseType() != sse_type_t::SSE_DISABLE){
+    if(!force_no_sse && S3fsCurl::GetSseType() != sse_type_t::SSE_DISABLE){
         std::string ssevalue;
         if(!AddSseRequestHead(S3fsCurl::GetSseType(), ssevalue, false)){
             S3FS_PRN_WARN("Failed to set SSE header, but continue...");
