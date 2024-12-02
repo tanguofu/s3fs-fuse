@@ -1,7 +1,7 @@
 #!/bin/bash
 
 fmt_info(){
-  printf '%s info: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" 
+  printf '%s info: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
 }
 
 
@@ -13,14 +13,14 @@ if [[ "$info" =~ "No such" ]]; then
 elif [[ "$info" =~ "not connected" ]]; then
   fusermount -u "$MOUNT_PATH"
   fmt_info "$MOUNT_PATH is not connected: $info"
-elif [[ "$info" =~ "cosfs-mount" ]]; then 
+elif [[ "$info" =~ "cosfs-mount" ]]; then
   fmt_info "$MOUNT_PATH  is mounted: $info"
 fi
 
 
 set -e
-COS_OPTIONS="$COS_OPTIONS -oallow_other -ononempty -ocompat_dir "
-USE_DISK_CACHE="/tmp"
+COS_OPTIONS="$COS_OPTIONS -oallow_other -ononempty -ocompat_dir -oauto_unmount "
+USE_DISK_CACHE=${USE_DISK_CACHE:-"/tmp"}
 
 if [ -n "$USE_MEM_CACHE" ]; then
   # calc min(2GB, Mem/4)
@@ -57,7 +57,7 @@ fi
 
 restartPolicy=${RESTART_POLICY:-Always}
 
-if [[ "${restartPolicy}" =~ "Always" ]]; then 
+if [[ "${restartPolicy}" =~ "Always" ]]; then
   fmt_info "restartPolicy:$restartPolicy do not check sidecar status"
 else
   fmt_info "restartPolicy:$restartPolicy start check sidecar status"
@@ -68,7 +68,7 @@ fi
 # strip \n of the url
 QCLOUD_TMS_CREDENTIALS_URL=$(echo -n "$QCLOUD_TMS_CREDENTIALS_URL" | tr -d '\n' | tr -d '\r' | tr -d ' ')
 set +e
-if [ -z "$QCLOUD_TMS_CREDENTIALS_URL" ]; then 
+if [ -z "$QCLOUD_TMS_CREDENTIALS_URL" ]; then
   nice -n -15 /cosfs-mount "$BUCKET" -f "$MOUNT_PATH" -ourl="$COS_URL" -opasswd_file="$PASSWD_FILE" $COS_OPTIONS
 else
   nice -n -15 /cosfs-mount "$BUCKET" -f "$MOUNT_PATH" -ourl="$COS_URL" -osts_agent_url="$QCLOUD_TMS_CREDENTIALS_URL" $COS_OPTIONS
