@@ -20,6 +20,10 @@
 
 SUBDIRS=src test doc
 
+if USE_JEMALLOC
+AM_CXXFLAGS = -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free
+endif
+
 EXTRA_DIST=doc default_commit_hash
 
 dist-hook:

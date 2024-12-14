@@ -1,5 +1,5 @@
 ################################################################################
-FROM mirrors.tencent.com/tlinux/tlinux4.0-minimal:latest as builder
+FROM mirrors.tencent.com/tencentos/tencentos4-minimal:latest AS builder
 
 ENV PIP_INDEX_URL="https://mirrors.tencent.com/pypi/simple" \
     PIP_NO_CACHE_DIR=false \
@@ -12,19 +12,19 @@ ENV PIP_INDEX_URL="https://mirrors.tencent.com/pypi/simple" \
     GOPRIVATE=""
 
 RUN dnf install -y yum && \
-    yum install -y wget tar git
+    yum install -y wget tar git gawk
 
 RUN yum install -y automake gcc-c++ git libcurl-devel libxml2-devel \
-                 fuse-devel make openssl-devel fuse
+                 fuse-devel make openssl-devel fuse jemalloc-devel
 
 #ENV BUILD_TAG 20231030
 #RUN git clone -b master https://github.com/tanguofu/cosfs.git cosfs
 ADD . /cosfs
 
-RUN cd /cosfs && ./autogen.sh && ./configure && make -j
+RUN cd /cosfs && ./autogen.sh && ./configure --with-jemalloc && make -j
 ######################################################################################
 
-FROM mirrors.tencent.com/tlinux/tlinux4.0-minimal:latest as gobuilder
+FROM mirrors.tencent.com/tencentos/tencentos4-minimal:latest as gobuilder
 
 # Envs: append /root/.bashrc instead of ENV docker cmd to make sure all envs take effect.
 ENV PIP_INDEX_URL="https://mirrors.tencent.com/pypi/simple" \
@@ -32,10 +32,10 @@ ENV PIP_INDEX_URL="https://mirrors.tencent.com/pypi/simple" \
     PIP_TRUSTED_HOST="mirrors.tencent.com" \
     PATH=$PATH:/root/bin:/root/.local/bin:/usr/local/bin:/usr/local/go/bin \
     GOPATH=/root/go \
-    GOHOME=/usr/local/go 
+    GOHOME=/usr/local/go
 
 
-RUN dnf install -y yum wget tar gzip gcc-c++ glibc-devel
+RUN dnf install -y yum wget tar gzip gcc-c++ glibc-devel jemalloc-devel
 
 RUN mkdir -p $GOPATH $GOHOME && \
     wget -q -O - https://mirrors.aliyun.com/golang/go1.19.13.linux-amd64.tar.gz | tar zxvf - -C /usr/local
@@ -43,12 +43,12 @@ RUN mkdir -p $GOPATH $GOHOME && \
 ADD ./sidecar /sidecar
 
 RUN cd /sidecar && \
-    go build -ldflags="-w -s " main.go   
+    go build -ldflags="-w -s " main.go
 
 
 
 ########################################################################################
-FROM mirrors.tencent.com/tlinux/tlinux4.0-minimal:latest as runtime
+FROM mirrors.tencent.com/tencentos/tencentos4-minimal:latest as runtime
 
 
 
@@ -59,9 +59,10 @@ ENV TZ="Asia/Shanghai" \
     PIP_TRUSTED_HOST="mirrors.tencent.com" \
     PATH=$PATH:/root/bin:/root/.local/bin:/usr/local/bin:/tiapp/bin:/host/usr/bin:/host/usr/local/bin
 
-# mailcap for  /etc/mime.types 
-RUN yum install -y fuse fuse-libs procps gawk util-linux nfs-utils mailcap tzdata  && \
-    ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime  && echo "Asia/Shanghai" > /etc/timezone && \
+# mailcap for  /etc/mime.types
+RUN yum install -y fuse fuse-libs procps gawk util-linux nfs-utils mailcap tzdata jemalloc-devel  && \
+    ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime  && \
+    echo "Asia/Shanghai" > /etc/timezone && \
     yum clean all && rm -fr /var/log/*
 
 COPY --from=builder /cosfs/src/s3fs    /cosfs-mount

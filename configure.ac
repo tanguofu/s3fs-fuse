@@ -36,6 +36,10 @@ AC_CHECK_FUNCS([fallocate])
 
 CXXFLAGS="-Wall -fno-exceptions -D_FILE_OFFSET_BITS=64 -D_FORTIFY_SOURCE=3 -std=c++11 $CXXFLAGS"
 
+if test "x$with_jemalloc" = "xyes"; then
+    CXXFLAGS="$CXXFLAGS -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free"
+fi
+
 dnl ----------------------------------------------
 dnl For macOS
 dnl ----------------------------------------------
@@ -192,7 +196,51 @@ AS_IF(
   )
 )
 
-dnl
+dnl ----------------------------------------------
+dnl Check for jemalloc
+dnl ----------------------------------------------
+AC_MSG_CHECKING([whether to use jemalloc])
+AC_ARG_WITH([jemalloc],
+    [AS_HELP_STRING([--with-jemalloc],
+        [use jemalloc for memory allocation @<:@default=yes@:>@])],
+    [with_jemalloc=$withval],
+    [with_jemalloc=yes])
+AC_MSG_RESULT([$with_jemalloc])
+
+if test "x$with_jemalloc" = "xyes"; then
+    AC_CHECK_LIB([jemalloc], [malloc],
+        [
+            LIBS="-ljemalloc $LIBS"
+            LDFLAGS="-Wl,--no-as-needed $LDFLAGS"
+            AC_DEFINE([USE_JEMALLOC], [1], [Define if you want to use jemalloc])
+            have_jemalloc=yes
+        ],
+        [AC_MSG_ERROR([jemalloc requested but not found. Install libjemalloc-dev or disable with --without-jemalloc])])
+fi
+
+AM_CONDITIONAL([USE_JEMALLOC], [test "x$have_jemalloc" = "xyes"])
+
+dnl ----------------------------------------------
+dnl Check for tcmalloc
+dnl ----------------------------------------------
+AC_MSG_CHECKING([whether to use tcmalloc])
+AC_ARG_WITH([tcmalloc],
+    [AS_HELP_STRING([--with-tcmalloc],
+        [use tcmalloc for memory allocation @<:@default=no@:>@])],
+    [with_tcmalloc=$withval],
+    [with_tcmalloc=no])
+AC_MSG_RESULT([$with_tcmalloc])
+
+if test "x$with_tcmalloc" = "xyes"; then
+    AC_CHECK_LIB([tcmalloc], [malloc],
+        [
+            LIBS="-ltcmalloc $LIBS"
+            AC_DEFINE([USE_TCMALLOC], [1], [Define if you want to use tcmalloc])
+        ],
+        [AC_MSG_ERROR([tcmalloc requested but not found])])
+fi
+
+dnl ----------------------------------------------
 dnl For PKG_CONFIG before checking nss/gnutls.
 dnl
 
@@ -269,7 +317,7 @@ dnl malloc_trim function
 AC_CHECK_FUNCS([malloc_trim])
 
 dnl clock_gettime function(macos)
-AC_SEARCH_LIBS([clock_gettime],[rt posix4]) 
+AC_SEARCH_LIBS([clock_gettime],[rt posix4])
 AC_CHECK_FUNCS([clock_gettime])
 
 dnl ----------------------------------------------
