@@ -20,7 +20,7 @@ fi
 
 set -e
 COS_URL=${COS_URL:-"https://cos.ap-shanghai.myqcloud.com"}
-COS_OPTIONS="$COS_OPTIONS -oallow_other -ononempty -ocompat_dir -oauto_unmount"
+COS_OPTIONS="$COS_OPTIONS -oallow_other -ononempty -ocompat_dir -oauto_unmount -ocomplement_stat"
 USE_DISK_CACHE=${USE_DISK_CACHE:-"/tmp"}
 
 if [ -n "$USE_MEM_CACHE" ]; then
